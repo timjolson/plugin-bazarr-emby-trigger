@@ -1,0 +1,269 @@
+This file is a stand-alone prompt template. Treat it as the complete instruction set for the repository to generate. Do not assume any surrounding conversation, repository context, hidden defaults, existing file layout, branch history, deleted branches, or prior implementation unless they are explicitly stated in this file or in the linked reference resources below.
+
+Generate everything below, from scratch, in the current repository, on a branch named `dev`.
+
+This prompt is intentionally structured so a human can edit the goals, resources, SDK examples, workflow rules, and deliverables for other Emby plugin ideas later.
+The agent should not modify or remove this prompt in any fashion without providing clear reasoning to the user and only when explicitly approved by the user.
+
+===============================================================================
+PROJECT TYPE
+===============================================================================
+
+Build an Emby server plugin that acts as a subtitle provider and delegates subtitle searching/downloading to Bazarr instead of downloading subtitles directly inside Emby.
+
+===============================================================================
+PRIMARY GOALS
+===============================================================================
+
+Implement all of the following behavior directly in the new repository:
+
+1. Register with Emby as a subtitle provider in the same general user-facing role as Emby's subtitle-provider plugins.
+2. When Emby triggers a subtitle search for a media item, the plugin must trigger Bazarr to perform its normal subtitle-search workflow for that exact media item.
+3. Pass through the requested subtitle language and whether the request is for forced subtitles only. The current version of Bazarr should ignore these, but it is part of the subtitle system in Emby.
+4. Do not return a user-selectable subtitle result list from the provider (an empty list may be required, in order to avoid error states). Instead, Bazarr should perform its own matching, scoring, and download behavior.
+5. Assume Bazarr is responsible for its own provider configuration, download logic, score logic, and post-download behavior.
+6. After Bazarr downloads subtitles and Emby refreshes the media item, detect whether a subtitle file is new or modified compared with the pre-search snapshot. Consider tracking pending searches within Emby's metadata files or server database, if possible, and does not violate standard practices for metadata files and Emby database usage.
+7. If a new or modified subtitle file is detected, send an Emby notification to the user who triggered the search when possible.
+8. Notification content must clearly identify the media item:
+   - Movies: title and release year
+   - Episodes: series name, season number, and episode number
+9. Include rate limiting so Emby can cap how many subtitle searches per hour are sent to Bazarr. Requests beyond the cap must be queued and processed later.
+10. Include a settings UI inside the Emby dashboard for configuring Bazarr access and plugin behavior.
+11. Enter this plugin as a 'subtitle provider' within the Emby dashboard.
+12. Provide secure API-key handling. Send the Bazarr API key in a header such as `X-API-KEY`, not in query strings or URLs.
+13. Include explanatory comments throughout the code so a mid-level hobbyist developer can understand the purpose of the code, important order-of-operations choices, security decisions, and Emby/Bazarr integration constraints.
+14. Check the repository description for possible additional guidance.
+
+===============================================================================
+MATCHING REQUIREMENTS
+===============================================================================
+
+Media matching between Emby metadata and Bazarr entries must support more than just Radarr/Sonarr IDs.
+
+Implement matching logic that attempts to correlate items using, where available:
+
+1. TMDB IDs for movies
+2. TVDB IDs for series and episodes
+3. Radarr IDs for movies
+4. Sonarr IDs for series/episodes
+5. Validate each returned match via, at a minimum:
+  - title
+  - year +/-1 (occasionally there are release year discrepancies)
+5. As a fallback if the above methods either do not return proper matches, or return multiple matches:
+  - File-path-based matching that uses cached media metadata polled from bazarr
+  - The cached metadata to be polled occasionally, with a configurable TTL
+
+Design the matching logic so ID-based matching is preferred when available, with media-file-path matching for resilience.
+
+===============================================================================
+TECHNICAL / ARCHITECTURAL REQUIREMENTS
+===============================================================================
+
+1. Base the repository structure and codebase on primarily the Emby SDK referenced later in this prompt.
+2. Do not clone or mirror an older repository structure blindly. Create a clean, maintainable architecture appropriate for a new plugin repository.
+3. Target `.NET Standard 2.0` / `netstandard2.0` for broad compatibility across supported .NET implementations commonly used by Emby plugin environments. If the chosen Emby SDK samples or package requirements strictly require a different target, or have been updated to newer versions of dependencies, explain these choices clearly in the README and project files.
+4. Include heavy debug logging throughout the plugin so troubleshooting in real environments is easier. Log:
+   - request entry/exit points
+   - media matching decisions
+   - ID sources used
+   - queue/rate-limit behavior
+   - Bazarr API request intent and response status
+   - subtitle snapshot comparisons
+   - notification decisions
+   - recoverable failures and retry/defer behavior
+5. Keep logs useful but avoid leaking secrets such as API keys.
+6. Include a testable, maintainable separation of concerns for:
+   - plugin entry/configuration
+   - Bazarr API communication
+   - media matching
+   - rate limiting / queuing
+   - subtitle snapshot detection
+   - notifications
+   - background monitoring or refresh handling
+   - settings UI / configuration endpoints
+7. Prefer robust, production-ready code patterns over minimal demo-only code.
+8. Never transmit protected information, such as API keys, in plain text or urls. API keys and similar must always be placed in headers unless the developer explicitly is warned of and approves of edge-cases.
+
+===============================================================================
+CONFIGURATION UI REQUIREMENTS
+===============================================================================
+
+Provide an Emby dashboard configuration page with at least:
+
+1. Bazarr host
+2. Bazarr port
+3. Optional reverse-proxy/base URI support
+4. Bazarr API key
+5. Searches-per-hour rate limit
+6. TTL for media metadata cached from Bazarr
+7. Plugin-specific logging verbosity
+8. Any additional settings needed, especially for development purposes (even those that may be removed later, once the plugin is stable), such as custom headers or data to inject into the Bazarr requests
+
+Also include:
+
+1. Inline validation for common host/port/base-URL mistakes
+2. A "Test Connection" action that verifies Bazarr connectivity before or during save, and clearly repots success, failure, and errors
+3. A clear summary of what endpoint the plugin will use
+4. Careful handling so sensitive values are not exposed in URLs
+
+===============================================================================
+WORKFLOW / BRANCH / RELEASE REQUIREMENTS
+===============================================================================
+
+Use `dev` as the default branch for active development, testing, troubleshooting, and development-release validation. Treat `main` as the stable promotion branch, not the day-to-day development branch.
+
+Implement repository automation with these rules:
+
+1. Prefer a simple two-branch model:
+   - `dev` = active integration branch for ongoing work
+   - `main` = stable branch for promoted releases
+2. New work should be based on `dev`, merged into `dev` for validation first, and promoted to `main` only when ready for a clearly stable release.
+3. The `dev` branch must build automatically and produce a downloadable development artifact or prerelease `dll` file.
+4. The `dev` output must be clearly marked as a development build, with `dev` included in the version, tag, artifact, or release identifier.
+5. Each `dev` release should be automatically version-incremented.
+6. The `main` branch must also build automatically and produce a full stable DLL artifact suitable for direct Emby installation.
+7. Stable `main` releases must remain clearly distinguishable from `dev` prereleases/drafts.
+8. Each `main` release should be automatically version-incremented.
+9. A simpler acceptable variant is: automatic CI builds on all branches, automatic development prerelease publication only from `dev`, and automatic stable release publication only from `main`. If this variant is chosen, document it clearly in the README.
+10. Preserve a similar level of workflow usefulness as:
+   - CI build artifacts downloadable from workflow runs
+   - release artifacts downloadable from GitHub Releases
+   - branch-aware stable vs development release behavior
+11. Document the workflow behavior clearly in the README.
+
+===============================================================================
+DOCUMENTATION REQUIREMENTS
+===============================================================================
+
+Create documentation at the same level of depth as a well-documented production-ready plugin repository.
+
+The new repository must include a comprehensive README that covers at least:
+
+1. What the plugin does
+2. How the logic flow works end-to-end
+3. Features
+4. Requirements / compatibility
+5. Installation
+6. Configuration
+7. Local build instructions
+8. CI/CD and release workflow behavior
+9. Development references
+10. Code walk-through / architecture overview
+11. Important design decisions
+12. Logging/debugging behavior
+13. Troubleshooting guidance
+14. Security handling, especially API-key handling
+
+Also include enough code comments and documentation excerpts so a mid-level hobbyist can follow the reasoning.
+
+===============================================================================
+TESTING REQUIREMENTS
+===============================================================================
+
+Do not spend the prompt on generic debugging or troubleshooting steps for the AI itself. Much of the testing (such as UI) will need to be manually performed by the developer.
+Instead, focus the repository deliverables on implementation plus project-level validation.
+
+Where practical, include automated tests for the most important logic such as:
+
+1. media matching
+2. subtitle snapshot comparison
+3. rate limiting / queue behavior
+4. any pure helper logic
+
+Any branch-specific validation guidance in the docs should treat `dev` as the primary branch for active testing and troubleshooting.
+
+===============================================================================
+DELIVERABLES
+===============================================================================
+
+Generate a complete new repository including at least:
+
+1. Plugin source code
+2. Project/solution files
+3. Emby plugin configuration UI assets
+4. README and any supporting docs
+5. GitHub Actions workflows for stable and development builds/releases
+6. Tests if supported by the selected SDK/structure
+7. Clear comments in code where non-obvious behavior exists
+
+===============================================================================
+REFERENCE RESOURCES TO USE
+===============================================================================
+
+Use these as implementation references and inspiration, but do not make the repository depend on any pre-existing repo layout:
+
+Official / primary resources:
+
+- Emby SDK:
+  - https://github.com/MediaBrowser/Emby.SDK
+- Emby developer site:
+  - https://dev.emby.media/index.html
+- Bazarr API / repository:
+  - https://github.com/morpheus65535/bazarr
+
+Functional/reference Emby plugins:
+
+- https://github.com/faush01/ChapterApi
+- https://github.com/Flawkee/Emby.Wizdom.Plugin
+- https://github.com/yocksers/EmbyBanner
+- https://github.com/ShanePe/Emby.SmartPlaylist.Plugin
+- https://github.com/nRafinia/Emby.Subtitle.SubSource
+
+Optional supporting background references:
+
+- Emby plugin build docs:
+  - https://dev.emby.media/doc/plugins/dev/index.html
+  - https://github.com/MediaBrowser/Emby/wiki/How-to-build-a-Server-Plugin
+- Emby plugin UI docs:
+  - https://dev.emby.media/doc/plugins/ui/index.html
+
+===============================================================================
+IMPLEMENTATION NOTES
+===============================================================================
+
+The generated repository should embody these design expectations:
+
+1. Emby triggers the search request.
+2. The plugin records the current subtitle-file snapshot for the media item OR inserts trigger information into either the metadata files or Emby database.
+3. The plugin resolves the media item against Bazarr using preferred ID matching first, then file-path fallback to cached data.
+4. The plugin triggers Bazarr for the requested language / forced state.
+5. The plugin returns control to Emby without presenting a manual subtitle-choice list. Consider dummy return data that indicates a search will be performed in the background.
+6. After Bazarr finishes and Emby refreshes the item, the plugin detects new/modified subtitle files.
+7. The plugin sends an Emby notification about success or important failure states.
+8. After Bazarr successfully receives a search trigger, the search is removed from the pending searches within the plugin.
+
+Security expectations:
+
+1. Never place API keys in URLs, query parameters, logs, README examples that imply insecure transport, or client-visible browser history where avoidable.
+2. Make such protected data in logs conform to Emby's redaction methodology enabled by "anonymize log contents" that is available when viewing a log file within the Emby dashboard.
+2. Prefer headers and secure configuration handling.
+3. Be explicit in code comments and README about why the secure transport pattern is used.
+
+===============================================================================
+OUTPUT FORMAT EXPECTATION
+===============================================================================
+
+Produce the repository as if you are scaffolding a real, publishable Emby plugin project from scratch.
+
+When generating content:
+
+1. Write the actual repository files and code.
+2. Do not refer back to any prior repository as a dependency.
+3. Do not say "same as the old repo" or "copy the previous implementation".
+4. State the requirements directly in the produced files.
+5. Prefer maintainable, human-readable structure and documentation over the smallest possible output.
+
+===============================================================================
+HUMAN-EDITABLE TEMPLATE NOTES
+===============================================================================
+
+When repurposing this prompt for a different Emby plugin later, a human should mainly be able to edit:
+
+1. `PROJECT TYPE`
+2. `PRIMARY GOALS`
+3. `MATCHING REQUIREMENTS`
+4. `REFERENCE RESOURCES TO USE`
+5. `WORKFLOW / BRANCH / RELEASE REQUIREMENTS`
+6. `DELIVERABLES`
+
+Keep those section headings intact in the generated prompt so the template remains reusable.
