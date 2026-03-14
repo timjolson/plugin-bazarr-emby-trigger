@@ -1,6 +1,7 @@
 This file is a stand-alone prompt template. Treat it as the complete instruction set for the repository to generate. Do not assume any surrounding conversation, repository context, hidden defaults, existing file layout, branch history, deleted branches, or prior implementation unless they are explicitly stated in this file or in the linked reference resources below.
 
 Generate everything below, from scratch, in the current repository, on a branch named `dev`.
+Any requests needed, for example: to approve web access and referencing external urls, ask the developer for approvals up-front so that the agent is self-sufficient for as long as possible after session initialization.
 
 This prompt is intentionally structured so a human can edit the goals, resources, SDK examples, workflow rules, and deliverables for other Emby plugin ideas later.
 The agent should not modify or remove this prompt in any fashion without providing clear reasoning to the user and only when explicitly approved by the user.
