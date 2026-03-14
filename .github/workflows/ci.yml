@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-dotnet@v4.3.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Plugin.Bazarr.Emby.Trigger.sln
+      - name: Build
+        run: dotnet build Plugin.Bazarr.Emby.Trigger.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Plugin.Bazarr.Emby.Trigger.sln --configuration Release --no-build
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4.6.1
+        with:
+          name: plugin-bazarr-emby-trigger-${{ github.sha }}
+          path: src/Plugin.Bazarr.Emby.Trigger/bin/Release/netstandard2.0/Plugin.Bazarr.Emby.Trigger.dll

@@ -3,7 +3,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <AssemblyName>Plugin.Bazarr.Emby.Trigger</AssemblyName>
     <RootNamespace>Plugin.Bazarr.Emby.Trigger</RootNamespace>
     <Description>Emby subtitle provider that delegates subtitle searches to Bazarr.</Description>

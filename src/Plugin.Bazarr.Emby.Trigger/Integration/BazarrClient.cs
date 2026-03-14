@@ -160,7 +160,7 @@ public class BazarrClient
             return string.Empty;
         }
 
-        var trimmed = baseUrl.Trim();
+        var trimmed = (baseUrl ?? string.Empty).Trim();
         if (!trimmed.StartsWith("/", StringComparison.Ordinal))
         {
             trimmed = "/" + trimmed;
