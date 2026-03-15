@@ -142,6 +142,28 @@ public class SearchCoordinatorTests
     }
 
     [Fact]
+    public async Task RunQueueProcessingPassAsync_FailedQueuedRequest_IsNotRetriedOnImmediateNextPass()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var record = scenario.CreatePendingRecord("user-1", "Failing Movie", 307);
+        scenario.Handler.FailMovieRequest(307);
+        scenario.Repository.Save(new[] { record });
+        using var coordinator = scenario.CreateCoordinator();
+
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+
+        Assert.Equal(1, scenario.Handler.GetMovieAttemptCount(307));
+        Assert.Empty(scenario.Handler.TriggeredMovieIds);
+
+        var saved = Assert.Single(scenario.Repository.Load());
+        Assert.Equal(PendingSearchState.Queued, saved.State);
+        Assert.NotNull(saved.LastAttemptUtc);
+        Assert.Equal(1, saved.RetryCount);
+        Assert.False(string.IsNullOrWhiteSpace(saved.LastError));
+    }
+
+    [Fact]
     public async Task RunQueueProcessingPassAsync_SkippedTriggeredRequest_AllowsLaterQueuedRequestToSend()
     {
         using var scenario = new SearchCoordinatorScenario();
@@ -310,11 +332,19 @@ public class SearchCoordinatorTests
     public sealed class StubBazarrHandler : HttpMessageHandler
     {
         private readonly Dictionary<int, (string Title, int Year, string Path)> movies = new();
+        private readonly HashSet<int> failingMovieIds = new();
+        private readonly Dictionary<int, int> movieAttemptCounts = new();
 
         public List<int> TriggeredMovieIds { get; } = new();
 
         public void RegisterMovie(int radarrId, string title, int year, string path)
             => movies[radarrId] = (title, year, path);
+
+        public void FailMovieRequest(int radarrId)
+            => failingMovieIds.Add(radarrId);
+
+        public int GetMovieAttemptCount(int radarrId)
+            => movieAttemptCounts.TryGetValue(radarrId, out var count) ? count : 0;
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -344,6 +374,12 @@ public class SearchCoordinatorTests
             {
                 if (TryGetQueryInt(request.RequestUri, "radarrid", out var radarrId))
                 {
+                    movieAttemptCounts[radarrId] = GetMovieAttemptCount(radarrId) + 1;
+                    if (failingMovieIds.Contains(radarrId))
+                    {
+                        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+                    }
+
                     TriggeredMovieIds.Add(radarrId);
                 }
 

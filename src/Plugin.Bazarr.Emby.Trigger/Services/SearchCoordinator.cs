@@ -173,6 +173,15 @@ public class SearchCoordinator : IDisposable
                 continue;
             }
 
+            if (queued.State == PendingSearchState.Queued
+                && queued.LastAttemptUtc.HasValue
+                && queued.LastAttemptUtc.Value.Add(perRequestRetryDelay) > now)
+            {
+                MoveToBack(queued);
+                Persist();
+                continue;
+            }
+
             if (!rateLimiter.TryAcquire(now, searchesPerHour))
             {
                 if (options.VerboseLogging && !rateLimitLogged)
@@ -194,6 +203,8 @@ public class SearchCoordinator : IDisposable
 
             try
             {
+                queued.LastAttemptUtc = now;
+                queued.RetryCount++;
                 var catalog = await catalogCache.GetAsync(options, TryParseInt(queued.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
                 var match = matcher.Match(queued, catalog);
                 if (match == null)
@@ -211,8 +222,6 @@ public class SearchCoordinator : IDisposable
                 // older queue files or future migrations populate TriggeredUtc ahead of resends.
                 queued.TriggeredUtc ??= now;
                 queued.LastSentUtc = now;
-                queued.LastAttemptUtc = now;
-                queued.RetryCount++;
                 queued.BazarrMovieId = match.MovieId == 0 ? queued.BazarrMovieId : match.MovieId;
                 queued.BazarrSeriesId = match.SeriesId == 0 ? queued.BazarrSeriesId : match.SeriesId;
                 queued.BazarrEpisodeId = match.EpisodeId == 0 ? queued.BazarrEpisodeId : match.EpisodeId;
