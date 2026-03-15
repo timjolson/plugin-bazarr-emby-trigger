@@ -57,7 +57,7 @@ public class SearchCoordinator : IDisposable
         this.logger = logger;
         searches = repository.Load();
 
-        if (searches.Any(item => item.NormalizeNotificationUserIds()))
+        if (searches.Any(item => item.NormalizeNotificationUserIds() || item.NormalizeSendTimestamps()))
         {
             repository.Save(searches);
         }
@@ -128,33 +128,69 @@ public class SearchCoordinator : IDisposable
 
     private async Task TriggerQueuedSearchesAsync(CancellationToken cancellationToken)
     {
-        while (true)
+        var options = optionsAccessor();
+        var now = DateTime.UtcNow;
+        var searchesPerHour = Math.Max(options.SearchesPerHour, 1);
+        var timeoutMinutes = Math.Max(options.SearchTimeoutMinutes, 1);
+        var perRequestRetryDelay = TimeSpan.FromHours(1d / searchesPerHour);
+        var rateLimitLogged = false;
+
+        List<string> activeSearchIds;
+        lock (syncRoot)
+        {
+            activeSearchIds = searches
+                .Where(IsActiveSearch)
+                .Select(item => item.Id)
+                .ToList();
+        }
+
+        foreach (var searchId in activeSearchIds)
         {
             PendingSearchRecord? queued;
             lock (syncRoot)
             {
-                queued = searches.FirstOrDefault(item => item.State == PendingSearchState.Queued);
+                queued = searches.FirstOrDefault(item => item.Id == searchId);
             }
 
-            if (queued == null)
+            if (queued == null || !IsActiveSearch(queued))
             {
-                return;
+                continue;
             }
 
-            var options = optionsAccessor();
-            if (!rateLimiter.TryAcquire(DateTime.UtcNow, Math.Max(options.SearchesPerHour, 1)))
+            if (queued.State == PendingSearchState.Triggered && HasRequestExpired(queued, now, timeoutMinutes))
             {
-                if (options.VerboseLogging)
+                // Expired triggered requests are removed by the monitoring pass that runs
+                // after queue processing in the normal background tick.
+                continue;
+            }
+
+            if (queued.State == PendingSearchState.Triggered
+                && queued.LastSentUtc.HasValue
+                && queued.LastSentUtc.Value.Add(perRequestRetryDelay) > now)
+            {
+                MoveToBack(queued);
+                Persist();
+                continue;
+            }
+
+            if (!rateLimiter.TryAcquire(now, searchesPerHour))
+            {
+                if (options.VerboseLogging && !rateLimitLogged)
                 {
-                    var next = rateLimiter.GetNextAvailableUtc(DateTime.UtcNow, Math.Max(options.SearchesPerHour, 1));
+                    var next = rateLimiter.GetNextAvailableUtc(now, searchesPerHour);
                     logger.Info($"Rate limit reached; queued subtitle searches will resume around {next:u}.");
+                    rateLimitLogged = true;
+                }
+
+                if (queued.State == PendingSearchState.Triggered)
+                {
+                    MoveToBack(queued);
+                    Persist();
+                    continue;
                 }
 
                 return;
             }
-
-            queued.LastAttemptUtc = DateTime.UtcNow;
-            queued.RetryCount++;
 
             try
             {
@@ -171,11 +207,17 @@ public class SearchCoordinator : IDisposable
                 logger.Info($"Matched queued subtitle request {queued.Id}: {match.Explanation}");
                 await bazarrClient.TriggerSearchAsync(options, queued, match, cancellationToken).ConfigureAwait(false);
                 queued.State = PendingSearchState.Triggered;
-                queued.TriggeredUtc = DateTime.UtcNow;
+                // Preserve the original successful Bazarr send time for TTL checks even when
+                // older queue files or future migrations populate TriggeredUtc ahead of resends.
+                queued.TriggeredUtc ??= now;
+                queued.LastSentUtc = now;
+                queued.LastAttemptUtc = now;
+                queued.RetryCount++;
                 queued.BazarrMovieId = match.MovieId == 0 ? queued.BazarrMovieId : match.MovieId;
                 queued.BazarrSeriesId = match.SeriesId == 0 ? queued.BazarrSeriesId : match.SeriesId;
                 queued.BazarrEpisodeId = match.EpisodeId == 0 ? queued.BazarrEpisodeId : match.EpisodeId;
                 queued.LastError = null;
+                MoveToBack(queued);
                 Persist();
             }
             catch (Exception ex)
@@ -187,6 +229,9 @@ public class SearchCoordinator : IDisposable
             }
         }
     }
+
+    internal Task RunQueueProcessingPassAsync(CancellationToken cancellationToken)
+        => TriggerQueuedSearchesAsync(cancellationToken);
 
     internal Task HandleLibraryItemChangeAsync(string? itemPath, string? parentPath, CancellationToken cancellationToken)
     {
@@ -218,7 +263,7 @@ public class SearchCoordinator : IDisposable
                     search.State = PendingSearchState.Completed;
                     completed.Add(search);
                 }
-                else if (search.TriggeredUtc.HasValue && search.TriggeredUtc.Value.AddMinutes(timeoutMinutes) < DateTime.UtcNow)
+                else if (HasRequestExpired(search, DateTime.UtcNow, timeoutMinutes))
                 {
                     search.State = PendingSearchState.TimedOut;
                     timedOut.Add(search);
@@ -482,6 +527,12 @@ public class SearchCoordinator : IDisposable
     private static string Normalize(string value)
         => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
 
+    private static bool IsActiveSearch(PendingSearchRecord search)
+        => search.State == PendingSearchState.Queued || search.State == PendingSearchState.Triggered;
+
+    private static bool HasRequestExpired(PendingSearchRecord search, DateTime now, int timeoutMinutes)
+        => search.TriggeredUtc.HasValue && search.TriggeredUtc.Value.AddMinutes(timeoutMinutes) < now;
+
     private static bool IsRelevantLibraryChange(PendingSearchRecord search, string? changedItemPath, string? changedParentPath)
     {
         if (string.IsNullOrWhiteSpace(changedItemPath) && string.IsNullOrWhiteSpace(changedParentPath))
@@ -528,6 +579,18 @@ public class SearchCoordinator : IDisposable
         lock (syncRoot)
         {
             repository.Save(searches);
+        }
+    }
+
+    private void MoveToBack(PendingSearchRecord search)
+    {
+        lock (syncRoot)
+        {
+            var removed = searches.Remove(search);
+            if (removed)
+            {
+                searches.Add(search);
+            }
         }
     }
 

@@ -37,6 +37,7 @@ public class PendingSearchRecord
     [DataMember(Order = 26)] public int? BazarrEpisodeId { get; set; }
     [DataMember(Order = 27)] public int? BazarrMovieId { get; set; }
     [DataMember(Order = 28)] public List<SubtitleFileFingerprint> Snapshot { get; set; } = new();
+    [DataMember(Order = 29)] public DateTime? LastSentUtc { get; set; }
 
     public string GetDisplayName()
     {
@@ -85,6 +86,20 @@ public class PendingSearchRecord
     {
         NormalizeNotificationUserIds();
         return NotificationUserIds;
+    }
+
+    public bool NormalizeSendTimestamps()
+    {
+        // TriggeredUtc has historically represented the first successful Bazarr send.
+        // When LastSentUtc is missing on legacy records, the safest migration is to treat
+        // that original send time as the latest known send time as well.
+        if (LastSentUtc.HasValue || !TriggeredUtc.HasValue)
+        {
+            return false;
+        }
+
+        LastSentUtc = TriggeredUtc;
+        return true;
     }
 }
 
