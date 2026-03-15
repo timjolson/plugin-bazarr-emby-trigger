@@ -61,8 +61,8 @@ internal static class PluginRuntime
 
             return users
                 .Cast<object>()
-                .OrderByDescending(GetLastActivityUtc)
-                .ThenByDescending(GetLastLoginUtc)
+                .OrderByDescending(GetLastActivityDate)
+                .ThenByDescending(GetLastLoginDate)
                 .Select(GetUserId)
                 .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item));
         }
@@ -72,10 +72,10 @@ internal static class PluginRuntime
         }
     }
 
-    private static DateTime GetLastActivityUtc(object user)
+    private static DateTime GetLastActivityDate(object user)
         => GetDateTimeProperty(user, "LastActivityDate") ?? DateTime.MinValue;
 
-    private static DateTime GetLastLoginUtc(object user)
+    private static DateTime GetLastLoginDate(object user)
         => GetDateTimeProperty(user, "LastLoginDate") ?? DateTime.MinValue;
 
     private static DateTime? GetDateTimeProperty(object source, string propertyName)
