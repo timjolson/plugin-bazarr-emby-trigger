@@ -15,9 +15,9 @@ public class PluginOptions : EditableOptionsBase
     public override string EditorDescription => "Configure Bazarr connectivity, queue behavior, cache timing, and debugging options for the Bazarr-backed Emby subtitle provider.";
 
     [DisplayName("Bazarr host")]
-    [Description("Hostname or IP address for the Bazarr server. Do not include a scheme such as http://.")]
+    [Description("Hostname or base URL for the Bazarr server, for example http://localhost or https://bazarr.example.com.")]
     [Required]
-    public string BazarrHost { get; set; } = "localhost";
+    public string BazarrHost { get; set; } = "http://localhost";
 
     [DisplayName("Bazarr port")]
     [Description("TCP port for the Bazarr server.")]
@@ -28,7 +28,7 @@ public class PluginOptions : EditableOptionsBase
     public string BazarrBaseUrl { get; set; } = string.Empty;
 
     [DisplayName("Bazarr API key")]
-    [Description("Stored server-side and always sent in the X-API-KEY header.")]
+    [Description("Stored server-side and always sent in the X-API-KEY header. Leave this field empty to retain the existing saved key.")]
     [IsPassword]
     public string BazarrApiKey { get; set; } = string.Empty;
 
@@ -72,10 +72,9 @@ public class PluginOptions : EditableOptionsBase
         {
             context.AddValidationError(nameof(BazarrHost), "Bazarr host is required.");
         }
-
-        if (BazarrHost.Contains("://"))
+        else if (!TryValidateHost(BazarrHost, out var hostError))
         {
-            context.AddValidationError(nameof(BazarrHost), "Bazarr host must not include a URL scheme.");
+            context.AddValidationError(nameof(BazarrHost), string.IsNullOrWhiteSpace(hostError) ? "Bazarr host is invalid." : hostError);
         }
 
         if (BazarrPort < 1 || BazarrPort > 65535)
@@ -102,5 +101,46 @@ public class PluginOptions : EditableOptionsBase
         {
             context.AddValidationError(nameof(SearchTimeoutMinutes), "Subtitle detection timeout must be at least 1 minute.");
         }
+    }
+
+    private static bool TryValidateHost(string host, out string errorMessage)
+    {
+        var trimmed = (host ?? string.Empty).Trim();
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var absoluteUri))
+        {
+            if (!string.Equals(absoluteUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(absoluteUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                errorMessage = "Bazarr host must use http or https when a scheme is provided.";
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(absoluteUri.UserInfo)
+                || !string.IsNullOrEmpty(absoluteUri.Query)
+                || !string.IsNullOrEmpty(absoluteUri.Fragment)
+                || absoluteUri.AbsolutePath != "/")
+            {
+                errorMessage = "Bazarr host must only contain the scheme and host. Use the base URI field for any path.";
+                return false;
+            }
+
+            if (!absoluteUri.IsDefaultPort)
+            {
+                errorMessage = "Bazarr host must not include a port. Use the Bazarr port field instead.";
+                return false;
+            }
+
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        if (trimmed.IndexOfAny(new[] { '/', '?', '#', '@' }) >= 0)
+        {
+            errorMessage = "Bazarr host must be a hostname, IP address, or http/https URL without a path.";
+            return false;
+        }
+
+        errorMessage = string.Empty;
+        return true;
     }
 }

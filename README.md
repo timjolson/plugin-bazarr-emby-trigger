@@ -68,9 +68,11 @@ The main configuration page uses Emby's SDK-style generated plugin UI and includ
 ### Validation and connection testing
 
 - Host and port are validated server-side through the editable configuration model.
+- The default Bazarr host value is `http://localhost`, while the reverse-proxy/base URI stays empty unless you need one.
 - The page includes an inline **Test Connection** button on the same configuration page as the Bazarr settings.
 - The inline status item shows the current saved endpoint and the latest connection-test result.
-- When the API key field is left blank, the page preserves the previously saved key instead of echoing it back to the client.
+- The API key field explains that leaving it blank preserves the previously saved key instead of echoing it back to the client.
+- If no effective API key is available, server-side validation marks the API key field invalid on the generated configuration page.
 
 ## Local build instructions
 

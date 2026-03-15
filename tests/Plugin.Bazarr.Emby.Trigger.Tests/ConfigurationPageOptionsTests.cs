@@ -1,4 +1,5 @@
 using Emby.Web.GenericEdit.Elements;
+using Emby.Web.GenericEdit.Validation;
 using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Ui;
 
@@ -23,6 +24,7 @@ public class ConfigurationPageOptionsTests
         Assert.Equal("Test Connection", page.TestConnectionButton.Caption);
         Assert.Equal("TestConnection", page.TestConnectionButton.Data1);
         Assert.Contains("http://bazarr.local:6767/bazarr/api", page.ConnectionStatus.StatusText);
+        Assert.Contains("Leave the API key field empty to keep the saved key.", page.ConnectionStatus.StatusText);
     }
 
     [Fact]
@@ -58,5 +60,29 @@ public class ConfigurationPageOptionsTests
 
         Assert.Equal(ItemStatus.Succeeded, page.ConnectionStatus.Status);
         Assert.Equal("Bazarr responded successfully.", page.ConnectionStatus.StatusText);
+    }
+
+    [Fact]
+    public void ValidateOrThrow_RequiresApiKeyWhenNoSavedKeyExists()
+    {
+        var page = new ConfigurationPageOptions
+        {
+            HasStoredApiKey = false,
+            BazarrApiKey = string.Empty,
+        };
+
+        Assert.Throws<ValidationException>(() => page.ValidateOrThrow());
+    }
+
+    [Fact]
+    public void ValidateOrThrow_AllowsEmptyApiKeyWhenSavedKeyExists()
+    {
+        var page = new ConfigurationPageOptions
+        {
+            HasStoredApiKey = true,
+            BazarrApiKey = string.Empty,
+        };
+
+        page.ValidateOrThrow();
     }
 }

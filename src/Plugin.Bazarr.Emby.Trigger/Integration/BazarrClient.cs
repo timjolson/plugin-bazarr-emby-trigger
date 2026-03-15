@@ -100,7 +100,7 @@ public class BazarrClient
 
     public static string BuildEndpointSummary(PluginOptions configuration)
     {
-        var builder = new UriBuilder(Uri.UriSchemeHttp, configuration.BazarrHost, configuration.BazarrPort);
+        var builder = CreateBaseUriBuilder(configuration);
         builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl) + "/api";
         return builder.Uri.ToString().TrimEnd('/');
     }
@@ -148,9 +148,20 @@ public class BazarrClient
 
     private Uri BuildUri(PluginOptions configuration, string relativePath)
     {
-        var builder = new UriBuilder(Uri.UriSchemeHttp, configuration.BazarrHost, configuration.BazarrPort);
+        var builder = CreateBaseUriBuilder(configuration);
         builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl).TrimEnd('/') + relativePath;
         return builder.Uri;
+    }
+
+    private static UriBuilder CreateBaseUriBuilder(PluginOptions configuration)
+    {
+        var trimmedHost = (configuration.BazarrHost ?? string.Empty).Trim();
+        if (Uri.TryCreate(trimmedHost, UriKind.Absolute, out var absoluteUri))
+        {
+            return new UriBuilder(absoluteUri.Scheme, absoluteUri.Host, configuration.BazarrPort);
+        }
+
+        return new UriBuilder(Uri.UriSchemeHttp, trimmedHost, configuration.BazarrPort);
     }
 
     private static string NormalizeBaseUrl(string? baseUrl)

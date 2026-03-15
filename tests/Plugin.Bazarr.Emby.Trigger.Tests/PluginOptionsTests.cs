@@ -1,9 +1,20 @@
 using Plugin.Bazarr.Emby.Trigger.Options;
+using Plugin.Bazarr.Emby.Trigger.Integration;
+using Emby.Web.GenericEdit.Validation;
 
 namespace Plugin.Bazarr.Emby.Trigger.Tests;
 
 public class PluginOptionsTests
 {
+    [Fact]
+    public void Defaults_UseHttpLocalhostAndEmptyBaseUri()
+    {
+        var options = new PluginOptions();
+
+        Assert.Equal("http://localhost", options.BazarrHost);
+        Assert.Equal(string.Empty, options.BazarrBaseUrl);
+    }
+
     [Fact]
     public void ParseCustomHeaders_IgnoresMalformedLinesAndTrimsValues()
     {
@@ -33,5 +44,42 @@ public class PluginOptionsTests
         Assert.False(headers.ContainsKey("EmptyValue"));
         Assert.Equal("Bearer:token", headers["Authorization"]);
         Assert.Equal("value", headers["Trailing"]);
+    }
+
+    [Fact]
+    public void ValidateOrThrow_AllowsHttpUrlHostWithoutPath()
+    {
+        var options = new PluginOptions
+        {
+            BazarrHost = "http://localhost",
+        };
+
+        options.ValidateOrThrow();
+    }
+
+    [Fact]
+    public void ValidateOrThrow_RejectsHostUrlWithPath()
+    {
+        var options = new PluginOptions
+        {
+            BazarrHost = "http://localhost/bazarr",
+        };
+
+        Assert.Throws<ValidationException>(() => options.ValidateOrThrow());
+    }
+
+    [Fact]
+    public void BuildEndpointSummary_UsesSchemeFromConfiguredHost()
+    {
+        var options = new PluginOptions
+        {
+            BazarrHost = "https://bazarr.example.com",
+            BazarrPort = 6767,
+            BazarrBaseUrl = string.Empty,
+        };
+
+        var endpoint = BazarrClient.BuildEndpointSummary(options);
+
+        Assert.Equal("https://bazarr.example.com:6767/api", endpoint);
     }
 }
