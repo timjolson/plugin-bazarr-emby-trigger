@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Linq;
 using System.Net.Http;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Notifications;
@@ -34,6 +36,7 @@ internal static class PluginRuntime
                 new SubtitleSnapshotService(),
                 new PendingSearchRepository(pluginDataDirectory),
                 new NotificationService(notificationManager, userManager),
+                () => GetMostRecentlyActiveUserId(userManager),
                 libraryManager,
                 logger);
             coordinator.Start();
@@ -44,4 +47,76 @@ internal static class PluginRuntime
     public static SearchCoordinator? Coordinator => coordinator;
 
     public static ILogger? Logger => logger;
+
+    private static string? GetMostRecentlyActiveUserId(IUserManager userManager)
+    {
+        try
+        {
+            var getUsers = typeof(IUserManager).GetMethod("GetUsers", Type.EmptyTypes);
+            var users = getUsers?.Invoke(userManager, Array.Empty<object>()) as IEnumerable;
+            if (users == null)
+            {
+                return null;
+            }
+
+            return users
+                .Cast<object>()
+                .OrderByDescending(GetLastActivityUtc)
+                .ThenByDescending(GetLastLoginUtc)
+                .Select(GetUserId)
+                .FirstOrDefault(item => !string.IsNullOrWhiteSpace(item));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static DateTime GetLastActivityUtc(object user)
+        => GetDateTimeProperty(user, "LastActivityDate") ?? DateTime.MinValue;
+
+    private static DateTime GetLastLoginUtc(object user)
+        => GetDateTimeProperty(user, "LastLoginDate") ?? DateTime.MinValue;
+
+    private static DateTime? GetDateTimeProperty(object source, string propertyName)
+    {
+        var property = source.GetType().GetProperty(propertyName);
+        if (property == null)
+        {
+            return null;
+        }
+
+        var value = property.GetValue(source);
+        if (value is DateTime dateTime)
+        {
+            return dateTime;
+        }
+
+        return null;
+    }
+
+    private static string? GetUserId(object user)
+    {
+        foreach (var propertyName in new[] { "Id", "UserId" })
+        {
+            var property = user.GetType().GetProperty(propertyName);
+            if (property == null)
+            {
+                continue;
+            }
+
+            var value = property.GetValue(user);
+            if (value is Guid guidValue && guidValue != Guid.Empty)
+            {
+                return guidValue.ToString("D");
+            }
+
+            if (value is string stringValue && !string.IsNullOrWhiteSpace(stringValue))
+            {
+                return stringValue.Trim();
+            }
+        }
+
+        return null;
+    }
 }

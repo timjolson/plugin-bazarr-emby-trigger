@@ -27,6 +27,7 @@ public class SearchCoordinator : IDisposable
     private readonly SubtitleSnapshotService snapshotService;
     private readonly PendingSearchRepository repository;
     private readonly NotificationService notificationService;
+    private readonly Func<string?>? fallbackRequestingUserIdAccessor;
     private readonly ILogger logger;
     private readonly ILibraryManager? libraryManager;
     private readonly object syncRoot = new object();
@@ -47,6 +48,7 @@ public class SearchCoordinator : IDisposable
         SubtitleSnapshotService snapshotService,
         PendingSearchRepository repository,
         NotificationService notificationService,
+        Func<string?>? fallbackRequestingUserIdAccessor,
         ILibraryManager? libraryManager,
         ILogger logger)
     {
@@ -58,6 +60,7 @@ public class SearchCoordinator : IDisposable
         this.snapshotService = snapshotService;
         this.repository = repository;
         this.notificationService = notificationService;
+        this.fallbackRequestingUserIdAccessor = fallbackRequestingUserIdAccessor;
         this.libraryManager = libraryManager;
         this.logger = logger;
         searches = repository.Load();
@@ -408,7 +411,7 @@ public class SearchCoordinator : IDisposable
             Snapshot = snapshotService.Capture(request.MediaPath ?? string.Empty),
         };
 
-        pending.AddNotificationUserId(GetRequestingUserId(request));
+        pending.AddNotificationUserId(GetRequestingUserId(request) ?? fallbackRequestingUserIdAccessor?.Invoke());
         return pending;
     }
 

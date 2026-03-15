@@ -43,6 +43,29 @@ public class NotificationServiceTests
     public async Task NotifyConnectionFailureAsync_UsesExpectedTitleAndErrorMessage()
     {
         var sent = new List<NotificationRequest>();
+        var user = new User();
+        var notificationManager = new RecordingNotificationManager(sent);
+        var service = new NotificationService(notificationManager, userId => userId == "user-1" ? user : null);
+        var search = new PendingSearchRecord
+        {
+            ContentType = MediaBrowser.Controller.Providers.VideoContentType.Movie,
+            Title = "Example Movie",
+            ProductionYear = 2024,
+        };
+        search.AddNotificationUserId("user-1");
+
+        await service.NotifyConnectionFailureAsync(search, "Unable to connect to Bazarr.", CancellationToken.None);
+
+        var notification = Assert.Single(sent);
+        Assert.Equal("Bazarr connection failed", notification.Title);
+        Assert.Contains("Unable to connect to Bazarr.", notification.Description);
+        Assert.Same(user, notification.User);
+    }
+
+    [Fact]
+    public async Task NotifySubtitleArrivalAsync_WithoutTrackedRequestor_DoesNotBroadcast()
+    {
+        var sent = new List<NotificationRequest>();
         var notificationManager = new RecordingNotificationManager(sent);
         var service = new NotificationService(notificationManager, _ => null);
         var search = new PendingSearchRecord
@@ -52,11 +75,9 @@ public class NotificationServiceTests
             ProductionYear = 2024,
         };
 
-        await service.NotifyConnectionFailureAsync(search, "Unable to connect to Bazarr.", CancellationToken.None);
+        await service.NotifySubtitleArrivalAsync(search, CancellationToken.None);
 
-        var notification = Assert.Single(sent);
-        Assert.Equal("Bazarr connection failed", notification.Title);
-        Assert.Contains("Unable to connect to Bazarr.", notification.Description);
+        Assert.Empty(sent);
     }
 
     private sealed class RecordingNotificationManager : INotificationManager

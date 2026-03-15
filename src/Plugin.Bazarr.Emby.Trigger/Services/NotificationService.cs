@@ -91,7 +91,6 @@ public class NotificationService
         var requestorIds = search.GetNotificationUserIds();
         if (requestorIds.Count == 0)
         {
-            notificationManager.SendNotification(CreateNotificationRequest(title, description, severity, cancellationToken));
             return;
         }
 

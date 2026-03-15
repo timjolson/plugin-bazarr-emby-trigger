@@ -5,6 +5,7 @@ using Emby.Notifications;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Notifications;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Logging;
 using Plugin.Bazarr.Emby.Trigger.Integration;
 using Plugin.Bazarr.Emby.Trigger.Models;
@@ -53,6 +54,30 @@ public class SearchCoordinatorTests
         var record = Assert.Single(saved);
         Assert.Equal(PendingSearchState.Triggered, record.State);
         Assert.Equal(new[] { "user-1", "user-2" }, record.GetNotificationUserIds());
+    }
+
+    [Fact]
+    public async Task QueueAsync_RequestWithoutVisibleUserId_UsesFallbackRequestorId()
+    {
+        using var scenario = new SearchCoordinatorScenario(() => "recent-user");
+        var request = scenario.CreateSubtitleSearchRequest();
+
+        await scenario.Coordinator.QueueAsync(request, CancellationToken.None);
+
+        var saved = Assert.Single(scenario.Repository.Load());
+        Assert.Equal(new[] { "recent-user" }, saved.GetNotificationUserIds());
+    }
+
+    [Fact]
+    public async Task QueueAsync_RequestWithoutVisibleUserId_AndWithoutFallback_LeavesRequestorUnknown()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var request = scenario.CreateSubtitleSearchRequest();
+
+        await scenario.Coordinator.QueueAsync(request, CancellationToken.None);
+
+        var saved = Assert.Single(scenario.Repository.Load());
+        Assert.Empty(saved.GetNotificationUserIds());
     }
 
     [Fact]
@@ -277,7 +302,7 @@ public class SearchCoordinatorTests
         private readonly NotificationService notificationService;
         private readonly TestLogger logger = new();
 
-        public SearchCoordinatorScenario()
+        public SearchCoordinatorScenario(Func<string?>? fallbackRequestingUserId = null)
         {
             directory = Directory.CreateTempSubdirectory();
             bazarrClient = new BazarrClient(new HttpClient(handler));
@@ -290,6 +315,7 @@ public class SearchCoordinatorTests
                 userId => string.IsNullOrWhiteSpace(userId)
                     ? null
                     : GetOrCreateUser(userId));
+            FallbackRequestingUserId = fallbackRequestingUserId;
             Coordinator = CreateCoordinator();
         }
 
@@ -305,6 +331,8 @@ public class SearchCoordinatorTests
 
         public TestNotificationManager NotificationManager { get; }
 
+        public Func<string?>? FallbackRequestingUserId { get; }
+
         public SearchCoordinator CreateCoordinator()
             => new(
                 () => options,
@@ -315,8 +343,20 @@ public class SearchCoordinatorTests
                 snapshotService,
                 Repository,
                 notificationService,
+                FallbackRequestingUserId,
                 null,
                 logger);
+
+        public SubtitleSearchRequest CreateSubtitleSearchRequest(string title = "Example Movie", int productionYear = 2024, string language = "eng")
+            => new()
+            {
+                ContentType = VideoContentType.Movie,
+                MediaPath = MediaPath,
+                Name = title,
+                ProductionYear = productionYear,
+                Language = language,
+                IsForced = false,
+            };
 
         public PendingSearchRecord CreatePendingRecord(string userId, string title = "Example Movie", int radarrId = 101, int productionYear = 2024)
         {
