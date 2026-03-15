@@ -55,11 +55,7 @@ public class PendingSearchRecord
 
         if (!string.IsNullOrWhiteSpace(NotificationUserId))
         {
-            if (AddNotificationUserId(NotificationUserId))
-            {
-                changed = true;
-            }
-
+            changed = AddNotificationUserId(NotificationUserId) || changed;
             NotificationUserId = null;
             changed = true;
         }

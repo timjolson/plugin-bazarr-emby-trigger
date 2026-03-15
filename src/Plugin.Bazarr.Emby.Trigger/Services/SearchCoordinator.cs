@@ -16,6 +16,8 @@ namespace Plugin.Bazarr.Emby.Trigger.Services;
 
 public class SearchCoordinator : IDisposable
 {
+    private static readonly string[] RequestingUserPropertyNames = { "RequestingUserId", "UserId", "RequestedByUserId", "User" };
+    private static readonly string[] NestedUserIdPropertyNames = { "Id", "UserId" };
     private readonly Func<PluginOptions> optionsAccessor;
     private readonly BazarrClient bazarrClient;
     private readonly BazarrCatalogCache catalogCache;
@@ -274,9 +276,8 @@ public class SearchCoordinator : IDisposable
 
     private static string? GetRequestingUserId(SubtitleSearchRequest request)
     {
-        var propertyNames = new[] { "RequestingUserId", "UserId", "RequestedByUserId", "User" };
         var requestType = request.GetType();
-        foreach (var propertyName in propertyNames)
+        foreach (var propertyName in RequestingUserPropertyNames)
         {
             var property = requestType.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
             if (property == null || property.GetIndexParameters().Length != 0)
@@ -322,7 +323,7 @@ public class SearchCoordinator : IDisposable
         }
 
         var runtimeType = value.GetType();
-        foreach (var propertyName in new[] { "Id", "UserId" })
+        foreach (var propertyName in NestedUserIdPropertyNames)
         {
             var property = runtimeType.GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
             if (property == null || property.GetIndexParameters().Length != 0)
@@ -413,7 +414,9 @@ public class SearchCoordinator : IDisposable
             return false;
         }
 
-        return string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+        var normalizedLeft = left!.Trim();
+        var normalizedRight = right!.Trim();
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool PathsEquivalent(string? left, string? right)
