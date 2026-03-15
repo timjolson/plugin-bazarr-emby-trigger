@@ -26,36 +26,34 @@ public class TestConnectionResult
 
 public class TestConnectionService : IService
 {
+    private static readonly HttpClient SharedHttpClient = new HttpClient
+    {
+        Timeout = TimeSpan.FromSeconds(30),
+    };
+
     public object Get(ConnectionInfoRequest request)
     {
         var options = Plugin.Instance?.Options ?? new PluginOptions();
-        using (var httpClient = new HttpClient())
+        return new TestConnectionResult
         {
-            var client = new BazarrClient(httpClient);
-            return new TestConnectionResult
-            {
-                Success = true,
-                Message = "Loaded saved Bazarr settings.",
-                Endpoint = client.BuildEndpointSummary(options),
-                HasApiKey = !string.IsNullOrWhiteSpace(options.BazarrApiKey),
-            };
-        }
+            Success = true,
+            Message = "Loaded saved Bazarr settings.",
+            Endpoint = BazarrClient.BuildEndpointSummary(options),
+            HasApiKey = !string.IsNullOrWhiteSpace(options.BazarrApiKey),
+        };
     }
 
     public object Post(TestConnectionRequest request)
     {
         var options = Plugin.Instance?.Options ?? new PluginOptions();
-        using (var httpClient = new HttpClient())
+        var client = new BazarrClient(SharedHttpClient);
+        var result = client.TestConnectionAsync(options, default).GetAwaiter().GetResult();
+        return new TestConnectionResult
         {
-            var client = new BazarrClient(httpClient);
-            var result = client.TestConnectionAsync(options, default).GetAwaiter().GetResult();
-            return new TestConnectionResult
-            {
-                Success = result.Success,
-                Message = result.Message,
-                Endpoint = result.Endpoint,
-                HasApiKey = !string.IsNullOrWhiteSpace(options.BazarrApiKey),
-            };
-        }
+            Success = result.Success,
+            Message = result.Message,
+            Endpoint = result.Endpoint,
+            HasApiKey = !string.IsNullOrWhiteSpace(options.BazarrApiKey),
+        };
     }
 }

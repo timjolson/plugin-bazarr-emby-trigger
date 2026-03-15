@@ -1,26 +1,33 @@
 using System;
 using System.Collections.Generic;
-using MediaBrowser.Common;
-using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins.UI;
 using Plugin.Bazarr.Emby.Trigger.Options;
+using Plugin.Bazarr.Emby.Trigger.Storage;
+using Plugin.Bazarr.Emby.Trigger.Ui;
+using Plugin.Bazarr.Emby.Trigger.UiBaseClasses;
 
 namespace Plugin.Bazarr.Emby.Trigger;
 
-public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasWebPages
+public sealed class Plugin : BasePlugin, IHasUIPages
 {
     public static Plugin? Instance { get; private set; }
 
     private readonly Guid id = new Guid("108c48a7-f1dc-4b2c-831b-a5eee53e997d");
     private readonly ILogger logger;
-    private string savedApiKey = string.Empty;
+    private readonly IServerApplicationHost applicationHost;
+    private readonly PluginOptionsStore optionsStore;
+    private List<IPluginUIPageController>? pages;
 
-    public Plugin(IApplicationHost applicationHost, ILogManager logManager)
-        : base(applicationHost)
+    public Plugin(IServerApplicationHost applicationHost, ILogManager logManager)
     {
         Instance = this;
+        this.applicationHost = applicationHost;
         logger = logManager.GetLogger(Name);
+        optionsStore = new PluginOptionsStore(applicationHost, logger, Name);
         logger.Info("Bazarr Emby Trigger plugin loaded.");
     }
 
@@ -30,65 +37,28 @@ public sealed class Plugin : BasePluginSimpleUI<PluginOptions>, IHasWebPages
 
     public override Guid Id => id;
 
-    public PluginOptions Options => GetOptions();
+    public PluginOptions Options => optionsStore.GetOptions();
 
-    public IEnumerable<PluginPageInfo> GetPages()
+    internal ILogger Logger => logger;
+
+    public IReadOnlyCollection<IPluginUIPageController> UIPageControllers
     {
-        return new[]
+        get
         {
-            new PluginPageInfo
+            if (pages == null)
             {
-                Name = "bazarr-emby-trigger-connection-tools",
-                DisplayName = "Bazarr Connection Tools",
-                EmbeddedResourcePath = GetType().Namespace + ".Ui.connectionPage.html",
-                IsMainConfigPage = false,
-                MenuSection = "server",
-            },
-        };
+                pages = new List<IPluginUIPageController>
+                {
+                    new MainPageController(GetPluginInfo(), applicationHost, optionsStore),
+                };
+            }
+
+            return pages.AsReadOnly();
+        }
     }
 
     public string GetPluginDataDirectory()
     {
         return DataFolderPath;
-    }
-
-    protected override PluginOptions OnBeforeShowUI(PluginOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(options.BazarrApiKey))
-        {
-            savedApiKey = options.BazarrApiKey;
-        }
-        return new PluginOptions
-        {
-            BazarrHost = options.BazarrHost,
-            BazarrPort = options.BazarrPort,
-            BazarrBaseUrl = options.BazarrBaseUrl,
-            BazarrApiKey = string.Empty,
-            SearchesPerHour = options.SearchesPerHour,
-            MetadataCacheTtlMinutes = options.MetadataCacheTtlMinutes,
-            QueuePollIntervalSeconds = options.QueuePollIntervalSeconds,
-            SearchTimeoutMinutes = options.SearchTimeoutMinutes,
-            VerboseLogging = options.VerboseLogging,
-            CustomRequestHeaders = options.CustomRequestHeaders,
-        };
-    }
-
-    protected override bool OnOptionsSaving(PluginOptions options)
-    {
-        if (string.IsNullOrWhiteSpace(options.BazarrApiKey))
-        {
-            options.BazarrApiKey = savedApiKey;
-        }
-
-        return base.OnOptionsSaving(options);
-    }
-
-    protected override void OnOptionsSaved(PluginOptions options)
-    {
-        if (!string.IsNullOrWhiteSpace(options.BazarrApiKey))
-        {
-            savedApiKey = options.BazarrApiKey;
-        }
-        logger.Info("Bazarr Emby Trigger options updated.");
     }
 }

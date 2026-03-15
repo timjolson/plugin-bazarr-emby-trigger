@@ -98,7 +98,7 @@ public class BazarrClient
         }
     }
 
-    public string BuildEndpointSummary(PluginOptions configuration)
+    public static string BuildEndpointSummary(PluginOptions configuration)
     {
         var builder = new UriBuilder(Uri.UriSchemeHttp, configuration.BazarrHost, configuration.BazarrPort);
         builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl) + "/api";
