@@ -21,18 +21,19 @@ public class MediaMatcher
     private MatchResult? MatchMovie(PendingSearchRecord search, BazarrCatalogSnapshot catalog)
     {
         var candidates = catalog.Movies.AsEnumerable();
-        var titleCandidates = candidates
-            .Where(item => TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear))
-            .ToList();
 
         if (int.TryParse(search.RadarrId, out var radarrId))
         {
-            var direct = titleCandidates.FirstOrDefault(item => item.RadarrId == radarrId);
+            var direct = candidates.FirstOrDefault(item => item.RadarrId == radarrId && MatchingHelpers.TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
             if (direct != null)
             {
                 return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = direct.RadarrId, Explanation = "Matched by Radarr ID." };
             }
         }
+
+        var titleCandidates = candidates
+            .Where(item => MatchingHelpers.TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear))
+            .ToList();
 
         if (!string.IsNullOrWhiteSpace(search.ImdbId))
         {
@@ -52,7 +53,7 @@ public class MediaMatcher
             }
         }
 
-        var path = candidates.FirstOrDefault(item => PathsEquivalent(item.Path, search.MediaPath) && TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
+        var path = candidates.FirstOrDefault(item => PathsEquivalent(item.Path, search.MediaPath) && MatchingHelpers.TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
         if (path != null)
         {
             return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = path.RadarrId, Explanation = "Matched by cached file path fallback." };
@@ -89,7 +90,7 @@ public class MediaMatcher
 
         if (int.TryParse(search.SonarrSeriesId, out var seriesId))
         {
-            var directSeries = seriesCandidates.FirstOrDefault(item => item.SonarrSeriesId == seriesId && TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear));
+            var directSeries = seriesCandidates.FirstOrDefault(item => item.SonarrSeriesId == seriesId && MatchingHelpers.TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear));
             if (directSeries != null)
             {
                 var episode = episodeCandidates.FirstOrDefault(item => item.SonarrSeriesId == directSeries.SonarrSeriesId && EpisodeShapeMatches(item, search));
@@ -109,7 +110,7 @@ public class MediaMatcher
 
         if (int.TryParse(search.TvdbId, out var tvdbId))
         {
-            var tvdbSeries = seriesCandidates.FirstOrDefault(item => item.TvdbId == tvdbId && TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear));
+            var tvdbSeries = seriesCandidates.FirstOrDefault(item => item.TvdbId == tvdbId && MatchingHelpers.TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear));
             if (tvdbSeries != null)
             {
                 var episode = episodeCandidates.FirstOrDefault(item => item.SonarrSeriesId == tvdbSeries.SonarrSeriesId && EpisodeShapeMatches(item, search));
@@ -128,7 +129,7 @@ public class MediaMatcher
         }
 
         var titleSeriesCandidates = seriesCandidates
-            .Where(item => TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
+            .Where(item => MatchingHelpers.TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
             .ToList();
         if (titleSeriesCandidates.Count == 1)
         {
@@ -162,27 +163,9 @@ public class MediaMatcher
         return null;
     }
 
-    private static bool TitleAndYearMatch(string leftTitle, string rightTitle, string leftYear, int? rightYear)
-    {
-        if (!string.Equals(Normalize(leftTitle), Normalize(rightTitle), StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!rightYear.HasValue || !int.TryParse(leftYear, out var parsedYear))
-        {
-            return true;
-        }
-
-        return Math.Abs(parsedYear - rightYear.Value) <= 1;
-    }
-
     private static bool EpisodeShapeMatches(BazarrEpisodeRecord item, PendingSearchRecord search)
         => item.Season == search.SeasonNumber.GetValueOrDefault() && item.Episode == search.EpisodeNumber.GetValueOrDefault();
 
     private static bool PathsEquivalent(string left, string right)
         => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
-
-    private static string Normalize(string value)
-        => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
 }

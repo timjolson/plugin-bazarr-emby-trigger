@@ -50,7 +50,7 @@ public class BazarrClient
 
     public async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, PendingSearchRecord? search, CancellationToken cancellationToken)
     {
-        return await GetCatalogSnapshotAsync(configuration, search, TryParseInt(search?.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
+        return await GetCatalogSnapshotAsync(configuration, search, MatchingHelpers.TryParseInt(search?.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, PendingSearchRecord? search, int? requestedSeriesId, CancellationToken cancellationToken)
@@ -58,8 +58,10 @@ public class BazarrClient
         var moviesTask = GetJsonAsync<BazarrMoviesResponse>(configuration, "/api/movies?length=-1", cancellationToken);
         var seriesTask = GetJsonAsync<BazarrSeriesResponse>(configuration, "/api/series?length=-1", cancellationToken);
         await Task.WhenAll(moviesTask, seriesTask).ConfigureAwait(false);
+        var movies = moviesTask.Result;
+        var series = seriesTask.Result;
 
-        var resolvedSeriesId = requestedSeriesId ?? ResolveSeriesId(search, seriesTask.Result.Data);
+        var resolvedSeriesId = requestedSeriesId ?? ResolveSeriesId(search, series.Data);
         var episodesTask = resolvedSeriesId.HasValue
             ? GetJsonAsync<BazarrEpisodesResponse>(configuration, $"/api/episodes?seriesid[]={resolvedSeriesId.Value}", cancellationToken)
             : Task.FromResult(new BazarrEpisodesResponse());
@@ -68,8 +70,8 @@ public class BazarrClient
 
         return new BazarrCatalogSnapshot
         {
-            Movies = moviesTask.Result.Data,
-            Series = seriesTask.Result.Data,
+            Movies = movies.Data,
+            Series = series.Data,
             Episodes = episodesTask.Result.Data,
         };
     }
@@ -244,7 +246,7 @@ public class BazarrClient
         }
 
         var titleCandidates = series
-            .Where(item => TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
+            .Where(item => MatchingHelpers.TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
             .ToList();
 
         if (int.TryParse(search.TvdbId, out var tvdbId))
@@ -270,24 +272,4 @@ public class BazarrClient
             : null;
     }
 
-    private static int? TryParseInt(string? value)
-        => int.TryParse(value, out var parsed) ? parsed : null;
-
-    private static bool TitleAndYearMatch(string leftTitle, string rightTitle, string leftYear, int? rightYear)
-    {
-        if (!string.Equals(Normalize(leftTitle), Normalize(rightTitle), StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (!rightYear.HasValue || !int.TryParse(leftYear, out var parsedYear))
-        {
-            return true;
-        }
-
-        return Math.Abs(parsedYear - rightYear.Value) <= 1;
-    }
-
-    private static string Normalize(string value)
-        => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
 }
