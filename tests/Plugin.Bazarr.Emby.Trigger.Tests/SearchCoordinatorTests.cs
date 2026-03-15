@@ -167,7 +167,7 @@ public class SearchCoordinatorTests
     public async Task RunQueueProcessingPassAsync_NoBazarrMatch_NotifiesTrackedRequestorImmediately()
     {
         using var scenario = new SearchCoordinatorScenario();
-        var record = scenario.CreateUnregisteredPendingRecord("user-1", "Unknown Movie", 308);
+        var record = scenario.CreateUnmatchedPendingRecord("user-1", "Unknown Movie", 308);
         scenario.Repository.Save(new[] { record });
         using var coordinator = scenario.CreateCoordinator();
 
@@ -186,7 +186,7 @@ public class SearchCoordinatorTests
     public async Task RunQueueProcessingPassAsync_FailedFrontItem_DoesNotBlockLaterQueuedItem()
     {
         using var scenario = new SearchCoordinatorScenario();
-        var unmatched = scenario.CreateUnregisteredPendingRecord("user-1", "Unknown Front Movie", 309);
+        var unmatched = scenario.CreateUnmatchedPendingRecord("user-1", "Unknown Front Movie", 309);
         var queued = scenario.CreatePendingRecord("user-2", "Queued Back Movie", 310);
         scenario.Repository.Save(new[] { unmatched, queued });
         using var coordinator = scenario.CreateCoordinator();
@@ -267,6 +267,7 @@ public class SearchCoordinatorTests
     {
         private readonly DirectoryInfo directory;
         private readonly StubBazarrHandler handler = new();
+        private readonly Dictionary<string, User> users = new(StringComparer.OrdinalIgnoreCase);
         private readonly BazarrClient bazarrClient;
         private readonly PluginOptions options = new();
         private readonly BazarrCatalogCache catalogCache;
@@ -284,7 +285,11 @@ public class SearchCoordinatorTests
             Repository = new PendingSearchRepository(directory.FullName);
             catalogCache = new BazarrCatalogCache(bazarrClient);
             NotificationManager = new TestNotificationManager();
-            notificationService = new NotificationService(NotificationManager, userId => string.IsNullOrWhiteSpace(userId) ? null : new User());
+            notificationService = new NotificationService(
+                NotificationManager,
+                userId => string.IsNullOrWhiteSpace(userId)
+                    ? null
+                    : GetOrCreateUser(userId));
             Coordinator = CreateCoordinator();
         }
 
@@ -341,7 +346,7 @@ public class SearchCoordinatorTests
             return pending;
         }
 
-        public PendingSearchRecord CreateUnregisteredPendingRecord(string userId, string title, int radarrId, int productionYear = 2024)
+        public PendingSearchRecord CreateUnmatchedPendingRecord(string userId, string title, int radarrId, int productionYear = 2024)
         {
             var mediaPath = EnsureMediaFile($"{title} ({productionYear}).mkv");
             var pending = new PendingSearchRecord
@@ -356,6 +361,17 @@ public class SearchCoordinatorTests
             };
             pending.AddNotificationUserId(userId);
             return pending;
+        }
+
+        private User GetOrCreateUser(string userId)
+        {
+            if (!users.TryGetValue(userId, out var user))
+            {
+                user = new User();
+                users[userId] = user;
+            }
+
+            return user;
         }
 
         private string EnsureMediaFile(string fileName)

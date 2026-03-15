@@ -89,6 +89,12 @@ public class PendingSearchRecord
         return NotificationUserIds;
     }
 
+    public bool HasNotificationUserIds()
+    {
+        NormalizeNotificationUserIds();
+        return NotificationUserIds.Count > 0;
+    }
+
     public bool NormalizeSendTimestamps()
     {
         // TriggeredUtc has historically represented the first successful Bazarr send.

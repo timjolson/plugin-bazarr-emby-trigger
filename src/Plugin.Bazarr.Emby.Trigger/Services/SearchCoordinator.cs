@@ -533,12 +533,17 @@ public class SearchCoordinator : IDisposable
 
     private async Task NotifyMatchFailureAsync(PendingSearchRecord queued, DateTime now, TimeSpan retryDelay, CancellationToken cancellationToken)
     {
-        if (!ShouldNotify(queued, ref lastMatchNotificationUtc, now, retryDelay, respectRateLimit: true))
+        if (!ShouldNotify(queued, lastMatchNotificationUtc, now, retryDelay, respectRateLimit: true))
         {
             return;
         }
 
         await notificationService.NotifyMatchFailureAsync(queued, cancellationToken).ConfigureAwait(false);
+        if (!HasImmediateNotificationRequestor(queued))
+        {
+            lastMatchNotificationUtc = now;
+        }
+
         queued.LastErrorNotificationUtc = now;
     }
 
@@ -551,8 +556,11 @@ public class SearchCoordinator : IDisposable
         CancellationToken cancellationToken,
         bool respectRateLimit)
     {
-        ref var lastNotificationUtc = ref GetLastNotificationUtc(failureKind);
-        if (!ShouldNotify(queued, ref lastNotificationUtc, now, retryDelay, respectRateLimit))
+        var lastNotificationUtc = failureKind == BazarrRequestFailureKind.Connection
+            ? lastConnectionNotificationUtc
+            : lastApiNotificationUtc;
+
+        if (!ShouldNotify(queued, lastNotificationUtc, now, retryDelay, respectRateLimit))
         {
             return;
         }
@@ -566,22 +574,24 @@ public class SearchCoordinator : IDisposable
             await notificationService.NotifyApiFailureAsync(queued, error, cancellationToken).ConfigureAwait(false);
         }
 
-        queued.LastErrorNotificationUtc = now;
-    }
-
-    private ref DateTime? GetLastNotificationUtc(BazarrRequestFailureKind failureKind)
-    {
-        if (failureKind == BazarrRequestFailureKind.Connection)
+        if (!HasImmediateNotificationRequestor(queued))
         {
-            return ref lastConnectionNotificationUtc;
+            if (failureKind == BazarrRequestFailureKind.Connection)
+            {
+                lastConnectionNotificationUtc = now;
+            }
+            else
+            {
+                lastApiNotificationUtc = now;
+            }
         }
 
-        return ref lastApiNotificationUtc;
+        queued.LastErrorNotificationUtc = now;
     }
 
     private static bool ShouldNotify(
         PendingSearchRecord queued,
-        ref DateTime? lastNotificationUtc,
+        DateTime? lastNotificationUtc,
         DateTime now,
         TimeSpan retryDelay,
         bool respectRateLimit)
@@ -598,17 +608,11 @@ public class SearchCoordinator : IDisposable
             return true;
         }
 
-        if (!lastNotificationUtc.HasValue || lastNotificationUtc.Value.Add(retryDelay) <= now)
-        {
-            lastNotificationUtc = now;
-            return true;
-        }
-
-        return false;
+        return !lastNotificationUtc.HasValue || lastNotificationUtc.Value.Add(retryDelay) <= now;
     }
 
     private static bool HasImmediateNotificationRequestor(PendingSearchRecord queued)
-        => queued.GetNotificationUserIds().Count > 0;
+        => queued.HasNotificationUserIds();
 
     private void ResetConnectionFailureState()
     {

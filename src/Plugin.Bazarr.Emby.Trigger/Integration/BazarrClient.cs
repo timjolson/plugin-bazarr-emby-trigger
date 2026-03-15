@@ -157,9 +157,12 @@ public class BazarrClient
             return;
         }
 
+        var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
+            ? "Unknown response"
+            : response.ReasonPhrase;
         throw new BazarrRequestException(
             BazarrRequestFailureKind.Api,
-            $"Bazarr returned {(int)response.StatusCode} {response.ReasonPhrase}.");
+            $"Bazarr returned {(int)response.StatusCode} {reason}.");
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, PluginOptions configuration, string relativePath, PendingSearchRecord? search = null)
