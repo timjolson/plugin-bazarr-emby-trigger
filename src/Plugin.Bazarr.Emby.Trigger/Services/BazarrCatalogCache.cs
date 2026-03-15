@@ -43,7 +43,7 @@ public class BazarrCatalogCache
             inFlightRefresh = refreshTask;
         }
 
-        return await inFlightRefresh.ConfigureAwait(false);
+        return await AwaitRefreshAsync(inFlightRefresh, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<BazarrCatalogSnapshot> RefreshAsync(PluginOptions configuration, PendingSearchRecord search, CancellationToken cancellationToken)
@@ -70,5 +70,22 @@ public class BazarrCatalogCache
                 refreshTask = null;
             }
         }
+    }
+
+    private static async Task<BazarrCatalogSnapshot> AwaitRefreshAsync(Task<BazarrCatalogSnapshot> refreshTask, CancellationToken cancellationToken)
+    {
+        if (!cancellationToken.CanBeCanceled)
+        {
+            return await refreshTask.ConfigureAwait(false);
+        }
+
+        var cancellationTask = Task.Delay(Timeout.Infinite, cancellationToken);
+        var completedTask = await Task.WhenAny(refreshTask, cancellationTask).ConfigureAwait(false);
+        if (!ReferenceEquals(completedTask, refreshTask))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        return await refreshTask.ConfigureAwait(false);
     }
 }

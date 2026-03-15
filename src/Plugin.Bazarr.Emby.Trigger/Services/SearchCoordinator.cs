@@ -123,7 +123,7 @@ public class SearchCoordinator : IDisposable
         libraryManager?.ItemAdded += OnLibraryItemChanged;
         libraryManager?.ItemUpdated += OnLibraryItemChanged;
         var pollInterval = TimeSpan.FromSeconds(Math.Max(options.QueuePollIntervalSeconds, 5));
-        timer = new Timer(_ => Tick(), null, pollInterval, pollInterval);
+        timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), pollInterval);
     }
 
     private void Tick()
