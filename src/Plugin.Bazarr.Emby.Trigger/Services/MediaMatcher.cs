@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Linq;
 using MediaBrowser.Controller.Providers;
 using Plugin.Bazarr.Emby.Trigger.Models;
@@ -53,7 +52,7 @@ public class MediaMatcher
             }
         }
 
-        var path = candidates.FirstOrDefault(item => PathsEquivalent(item.Path, search.MediaPath) && MatchingHelpers.TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
+        var path = candidates.FirstOrDefault(item => MatchingHelpers.PathsEquivalent(item.Path, search.MediaPath) && MatchingHelpers.TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
         if (path != null)
         {
             return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = path.RadarrId, Explanation = "Matched by cached file path fallback." };
@@ -147,7 +146,7 @@ public class MediaMatcher
             }
         }
 
-        var byPath = episodeCandidates.FirstOrDefault(item => PathsEquivalent(item.Path, search.MediaPath) && EpisodeShapeMatches(item, search));
+        var byPath = episodeCandidates.FirstOrDefault(item => MatchingHelpers.PathsEquivalent(item.Path, search.MediaPath) && EpisodeShapeMatches(item, search));
         if (byPath != null)
         {
             return new MatchResult
@@ -165,7 +164,4 @@ public class MediaMatcher
 
     private static bool EpisodeShapeMatches(BazarrEpisodeRecord item, PendingSearchRecord search)
         => item.Season == search.SeasonNumber.GetValueOrDefault() && item.Episode == search.EpisodeNumber.GetValueOrDefault();
-
-    private static bool PathsEquivalent(string left, string right)
-        => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
 }

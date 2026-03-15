@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Model.Logging;
 using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Models;
 using Plugin.Bazarr.Emby.Trigger.Services;
@@ -14,11 +15,14 @@ namespace Plugin.Bazarr.Emby.Trigger.Integration;
 
 public class BazarrClient
 {
+    private const string VerboseLoggingPropertyName = "BazarrVerboseLogging";
     private readonly HttpClient httpClient;
+    private readonly ILogger? logger;
 
-    public BazarrClient(HttpClient httpClient)
+    public BazarrClient(HttpClient httpClient, ILogger? logger = null)
     {
         this.httpClient = httpClient;
+        this.logger = logger;
     }
 
     public async Task<(bool Success, string Message, string Endpoint)> TestConnectionAsync(PluginOptions configuration, CancellationToken cancellationToken)
@@ -90,15 +94,22 @@ public class BazarrClient
             return;
         }
 
-        var manualResults = await GetJsonAsync<BazarrManualSearchResponse>(configuration, $"/api/providers/episodes?episodeid={match.EpisodeId}", cancellationToken).ConfigureAwait(false);
-        var chosen = manualResults.Data
+        // Bazarr does not provide an episode search-missing endpoint like the movie API, so the
+        // plugin uses the manual provider endpoint and submits Bazarr's top-ranked candidate.
+        var candidateSubtitles = await GetJsonAsync<BazarrManualSearchResponse>(configuration, $"/api/providers/episodes?episodeid={match.EpisodeId}", cancellationToken).ConfigureAwait(false);
+        var preferredCandidate = candidateSubtitles.Data
             .OrderByDescending(item => item.Score)
             .ThenByDescending(item => item.OriginalScore)
             .FirstOrDefault();
 
-        if (chosen == null)
+        if (preferredCandidate == null)
         {
             throw new InvalidOperationException("Bazarr returned no manual subtitle candidates for the episode search.");
+        }
+
+        if (configuration.VerboseLogging)
+        {
+            logger?.Info($"Selected Bazarr episode subtitle candidate for episode {match.EpisodeId} from provider '{preferredCandidate.Provider}' with score {preferredCandidate.Score}.");
         }
 
         var form = new Dictionary<string, string>
@@ -106,10 +117,10 @@ public class BazarrClient
             ["seriesid"] = match.SeriesId.ToString(),
             ["episodeid"] = match.EpisodeId.ToString(),
             ["hi"] = "False",
-            ["forced"] = search.ForcedOnly ? "True" : chosen.Forced,
-            ["original_format"] = chosen.OriginalFormat,
-            ["provider"] = chosen.Provider,
-            ["subtitle"] = chosen.Subtitle,
+            ["forced"] = search.ForcedOnly ? "True" : preferredCandidate.Forced,
+            ["original_format"] = preferredCandidate.OriginalFormat,
+            ["provider"] = preferredCandidate.Provider,
+            ["subtitle"] = preferredCandidate.Subtitle,
         };
 
         using (var request = CreateRequest(HttpMethod.Post, configuration, "/api/providers/episodes", search))
@@ -153,7 +164,18 @@ public class BazarrClient
     {
         try
         {
-            return await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (TryGetVerboseLogging(request, out var verboseLogging) && verboseLogging)
+            {
+                logger?.Info($"Sending Bazarr {request.Method} request to {request.RequestUri?.PathAndQuery ?? string.Empty}.");
+            }
+
+            var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (TryGetVerboseLogging(request, out verboseLogging) && verboseLogging)
+            {
+                logger?.Info($"Bazarr responded to {request.Method} {request.RequestUri?.PathAndQuery ?? string.Empty} with {(int)response.StatusCode} {response.ReasonPhrase}.");
+            }
+
+            return response;
         }
         catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
@@ -186,6 +208,7 @@ public class BazarrClient
         var request = new HttpRequestMessage(method, uri);
         request.Headers.Add("X-API-KEY", configuration.BazarrApiKey ?? string.Empty);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Properties[VerboseLoggingPropertyName] = configuration.VerboseLogging;
 
         foreach (var header in configuration.ParseCustomHeaders())
         {
@@ -199,6 +222,18 @@ public class BazarrClient
         }
 
         return request;
+    }
+
+    private static bool TryGetVerboseLogging(HttpRequestMessage request, out bool verboseLogging)
+    {
+        if (request.Properties.TryGetValue(VerboseLoggingPropertyName, out var value) && value is bool enabled)
+        {
+            verboseLogging = enabled;
+            return true;
+        }
+
+        verboseLogging = false;
+        return false;
     }
 
     private Uri BuildUri(PluginOptions configuration, string relativePath)

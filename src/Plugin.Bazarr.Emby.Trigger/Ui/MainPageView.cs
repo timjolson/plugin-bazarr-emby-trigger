@@ -23,7 +23,7 @@ internal sealed class MainPageView : PluginPageView
         : base(pluginInfo.Id)
     {
         this.optionsStore = optionsStore;
-        bazarrClient = new BazarrClient(SharedHttpClient);
+        bazarrClient = new BazarrClient(SharedHttpClient, Plugin.Instance?.Logger);
         ContentData = CreateEditableOptions(optionsStore.GetOptions());
     }
 

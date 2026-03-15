@@ -44,11 +44,12 @@ Bazarr Emby Trigger is an Emby server plugin that registers as a subtitle provid
 
 ## Installation
 
-1. Build the plugin with `dotnet build -c Release`.
-2. Copy `src/Plugin.Bazarr.Emby.Trigger/bin/Release/netstandard2.0/Plugin.Bazarr.Emby.Trigger.dll` into Emby's plugins directory.
-3. Restart Emby.
-4. Open **Dashboard → Plugins → My Plugins → Bazarr Emby Trigger**.
-5. Enter Bazarr connectivity settings and save.
+1. Download `Plugin.Bazarr.Emby.Trigger.dll` directly from the latest matching GitHub Release, or build it locally with `dotnet build -c Release`.
+2. If you downloaded the release ZIP instead, extract `Plugin.Bazarr.Emby.Trigger.dll` from it.
+3. Copy `Plugin.Bazarr.Emby.Trigger.dll` into Emby's plugins directory.
+4. Restart Emby.
+5. Open **Dashboard → Plugins → My Plugins → Bazarr Emby Trigger**.
+6. Enter Bazarr connectivity settings and save.
 
 ## Configuration
 
@@ -93,6 +94,7 @@ The repository is structured around a two-branch release model even though GitHu
 
 - **CI (`ci.yml`)** runs on pushes and pull requests, builds the solution, runs tests, and uploads a build artifact.
 - **Release (`release.yml`)** runs on pushes to `dev` and `main`.
+  - Each release publishes both a directly installable `Plugin.Bazarr.Emby.Trigger.dll` asset and a ZIP archive to the GitHub Release page.
   - `dev` publishes a prerelease artifact/tag with `dev` in the identifier.
   - `main` publishes a stable artifact/tag without the prerelease suffix.
   - Both release flows use the GitHub run number to auto-increment artifact and tag versions.

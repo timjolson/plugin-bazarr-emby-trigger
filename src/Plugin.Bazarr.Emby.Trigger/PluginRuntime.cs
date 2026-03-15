@@ -26,11 +26,16 @@ internal static class PluginRuntime
             }
 
             logger = logManager.GetLogger("BazarrEmbyTrigger");
-            var client = new BazarrClient(new HttpClient());
+            var client = new BazarrClient(
+                new HttpClient
+                {
+                    Timeout = TimeSpan.FromSeconds(30),
+                },
+                logger);
             coordinator = new SearchCoordinator(
                 optionsAccessor,
                 client,
-                new BazarrCatalogCache(client),
+                new BazarrCatalogCache(client, logger),
                 new MediaMatcher(),
                 new SlidingWindowRateLimiter(),
                 new SubtitleSnapshotService(),

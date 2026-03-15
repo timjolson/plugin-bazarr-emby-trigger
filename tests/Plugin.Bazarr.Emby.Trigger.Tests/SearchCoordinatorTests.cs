@@ -81,6 +81,17 @@ public class SearchCoordinatorTests
     }
 
     [Fact]
+    public async Task QueueAsync_WhenVerboseLoggingDisabled_SuppressesQueueInfoLogs()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        scenario.Options.VerboseLogging = false;
+
+        await scenario.Coordinator.QueueAsync(scenario.CreatePendingRecord("user-1"), CancellationToken.None);
+
+        Assert.Empty(scenario.Logger.InfoMessages);
+    }
+
+    [Fact]
     public async Task RunTriggeredMonitoringPassAsync_WhenPollingEnabled_CompletesSearchAfterSubtitleAppears()
     {
         using var scenario = new SearchCoordinatorScenario();
@@ -333,6 +344,8 @@ public class SearchCoordinatorTests
 
         public Func<string?>? FallbackRequestingUserId { get; }
 
+        public TestLogger Logger => logger;
+
         public SearchCoordinator CreateCoordinator()
             => new(
                 () => options,
@@ -457,6 +470,8 @@ public class SearchCoordinatorTests
 
     private sealed class TestLogger : ILogger
     {
+        public List<string> InfoMessages { get; } = new();
+
         public void Debug(string message, params object[] paramList) { }
         public void Debug(ReadOnlyMemory<char> message) { }
         public void Error(string message, params object[] paramList) { }
@@ -464,8 +479,8 @@ public class SearchCoordinatorTests
         public void ErrorException(string message, Exception exception, params object[] paramList) { }
         public void Fatal(string message, params object[] paramList) { }
         public void FatalException(string message, Exception exception, params object[] paramList) { }
-        public void Info(string message, params object[] paramList) { }
-        public void Info(ReadOnlyMemory<char> message) { }
+        public void Info(string message, params object[] paramList) => InfoMessages.Add(message);
+        public void Info(ReadOnlyMemory<char> message) => InfoMessages.Add(message.ToString());
         public void Log(LogSeverity severity, string message, params object[] paramList) { }
         public void Log(LogSeverity severity, ReadOnlyMemory<char> message) { }
         public void LogMultiline(string message, LogSeverity severity, System.Text.StringBuilder additionalContent) { }

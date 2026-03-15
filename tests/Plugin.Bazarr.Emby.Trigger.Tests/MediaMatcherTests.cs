@@ -167,4 +167,29 @@ public class MediaMatcherTests
         Assert.Equal(88, result.SeriesId);
         Assert.Equal("Matched by cached series title/year fallback plus episode numbers.", result.Explanation);
     }
+
+    [Fact]
+    public void Match_InvalidPathFallback_DoesNotThrow()
+    {
+        var matcher = new MediaMatcher();
+        var search = new PendingSearchRecord
+        {
+            ContentType = VideoContentType.Movie,
+            Title = "Dune",
+            ProductionYear = 2021,
+            MediaPath = "bad\0path",
+        };
+        var catalog = new BazarrCatalogSnapshot
+        {
+            Movies = new[]
+            {
+                new BazarrMovieRecord { Title = "Dune", Year = "2021", RadarrId = 11, Path = "/library/movies/dune-one.mkv" },
+                new BazarrMovieRecord { Title = "Dune", Year = "2021", RadarrId = 22, Path = "/library/movies/dune-two.mkv" },
+            },
+        };
+
+        var result = matcher.Match(search, catalog);
+
+        Assert.Null(result);
+    }
 }
