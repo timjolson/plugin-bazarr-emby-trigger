@@ -1,5 +1,6 @@
 using System;
 using System.Net.Http;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Notifications;
 using MediaBrowser.Model.Logging;
 using Plugin.Bazarr.Emby.Trigger.Integration;
@@ -13,7 +14,7 @@ internal static class PluginRuntime
     private static SearchCoordinator? coordinator;
     private static ILogger? logger;
 
-    public static void Initialize(Func<Options.PluginOptions> optionsAccessor, INotificationManager notificationManager, ILogManager logManager, string pluginDataDirectory)
+    public static void Initialize(Func<Options.PluginOptions> optionsAccessor, INotificationManager notificationManager, IUserManager userManager, ILogManager logManager, string pluginDataDirectory)
     {
         lock (SyncRoot)
         {
@@ -32,7 +33,7 @@ internal static class PluginRuntime
                 new SlidingWindowRateLimiter(),
                 new SubtitleSnapshotService(),
                 new PendingSearchRepository(pluginDataDirectory),
-                new NotificationService(notificationManager),
+                new NotificationService(notificationManager, userManager),
                 logger);
             coordinator.Start();
             logger.Info("Bazarr Emby Trigger runtime initialized.");

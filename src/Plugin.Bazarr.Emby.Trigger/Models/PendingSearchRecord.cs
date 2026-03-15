@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using MediaBrowser.Controller.Providers;
 
@@ -30,11 +31,12 @@ public class PendingSearchRecord
     [DataMember(Order = 20)] public DateTime? LastAttemptUtc { get; set; }
     [DataMember(Order = 21)] public string? LastError { get; set; }
     [DataMember(Order = 22)] public int RetryCount { get; set; }
-    [DataMember(Order = 23)] public string? NotificationUserId { get; set; }
-    [DataMember(Order = 24)] public int? BazarrSeriesId { get; set; }
-    [DataMember(Order = 25)] public int? BazarrEpisodeId { get; set; }
-    [DataMember(Order = 26)] public int? BazarrMovieId { get; set; }
-    [DataMember(Order = 27)] public List<SubtitleFileFingerprint> Snapshot { get; set; } = new();
+    [DataMember(Order = 23, EmitDefaultValue = false)] public string? NotificationUserId { get; set; }
+    [DataMember(Order = 24)] public List<string> NotificationUserIds { get; set; } = new();
+    [DataMember(Order = 25)] public int? BazarrSeriesId { get; set; }
+    [DataMember(Order = 26)] public int? BazarrEpisodeId { get; set; }
+    [DataMember(Order = 27)] public int? BazarrMovieId { get; set; }
+    [DataMember(Order = 28)] public List<SubtitleFileFingerprint> Snapshot { get; set; } = new();
 
     public string GetDisplayName()
     {
@@ -44,6 +46,49 @@ public class PendingSearchRecord
         }
 
         return $"{SeriesName} - S{SeasonNumber.GetValueOrDefault():00}E{EpisodeNumber.GetValueOrDefault():00}";
+    }
+
+    public bool NormalizeNotificationUserIds()
+    {
+        var changed = false;
+        NotificationUserIds ??= new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(NotificationUserId))
+        {
+            if (AddNotificationUserId(NotificationUserId))
+            {
+                changed = true;
+            }
+
+            NotificationUserId = null;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    public bool AddNotificationUserId(string? userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return false;
+        }
+
+        NotificationUserIds ??= new List<string>();
+        var normalized = userId!.Trim();
+        if (NotificationUserIds.Any(item => string.Equals(item, normalized, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        NotificationUserIds.Add(normalized);
+        return true;
+    }
+
+    public IReadOnlyList<string> GetNotificationUserIds()
+    {
+        NormalizeNotificationUserIds();
+        return NotificationUserIds;
     }
 }
 

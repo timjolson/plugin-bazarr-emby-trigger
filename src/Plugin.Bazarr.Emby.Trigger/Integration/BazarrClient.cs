@@ -40,7 +40,9 @@ public class BazarrClient
     {
         var moviesTask = GetJsonAsync<BazarrMoviesResponse>(configuration, "/api/movies?length=-1", cancellationToken);
         var seriesTask = GetJsonAsync<BazarrSeriesResponse>(configuration, "/api/series?length=-1", cancellationToken);
-        var episodesTask = GetJsonAsync<BazarrEpisodesResponse>(configuration, seriesId.HasValue ? $"/api/episodes?seriesid[]={seriesId.Value}" : "/api/episodes?episodeid[]=-1", cancellationToken);
+        var episodesTask = seriesId.HasValue
+            ? GetJsonAsync<BazarrEpisodesResponse>(configuration, $"/api/episodes?seriesid[]={seriesId.Value}", cancellationToken)
+            : Task.FromResult(new BazarrEpisodesResponse());
 
         await Task.WhenAll(moviesTask, seriesTask, episodesTask).ConfigureAwait(false);
 
@@ -149,7 +151,10 @@ public class BazarrClient
     private Uri BuildUri(PluginOptions configuration, string relativePath)
     {
         var builder = CreateBaseUriBuilder(configuration);
-        builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl).TrimEnd('/') + relativePath;
+        var queryIndex = relativePath.IndexOf('?');
+        var path = queryIndex >= 0 ? relativePath.Substring(0, queryIndex) : relativePath;
+        builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl).TrimEnd('/') + path;
+        builder.Query = queryIndex >= 0 ? relativePath.Substring(queryIndex + 1) : string.Empty;
         return builder.Uri;
     }
 
