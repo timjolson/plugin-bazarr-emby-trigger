@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Integration;
 using Emby.Web.GenericEdit.Validation;
@@ -13,6 +14,20 @@ public class PluginOptionsTests
 
         Assert.Equal("http://localhost", options.BazarrHost);
         Assert.Equal(string.Empty, options.BazarrBaseUrl);
+    }
+
+    [Fact]
+    public void BazarrBaseUrl_DescriptionIncludesExampleAndEmptyGuidance()
+    {
+        var property = typeof(PluginOptions).GetProperty(nameof(PluginOptions.BazarrBaseUrl));
+        var description = property?.GetCustomAttributes(typeof(DescriptionAttribute), inherit: false)
+            .OfType<DescriptionAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(description);
+        Assert.Equal(
+            "Optional path base when Bazarr is published behind a reverse proxy. Example: /bazarr. Leave this empty when Bazarr is not behind a reverse proxy.",
+            description!.Description);
     }
 
     [Fact]

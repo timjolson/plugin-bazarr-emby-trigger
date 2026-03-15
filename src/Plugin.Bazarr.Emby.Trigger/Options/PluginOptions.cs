@@ -24,7 +24,7 @@ public class PluginOptions : EditableOptionsBase
     public int BazarrPort { get; set; } = 6767;
 
     [DisplayName("Reverse proxy / base URI")]
-    [Description("Optional path base when Bazarr is published behind a reverse proxy, for example /bazarr.")]
+    [Description("Optional path base when Bazarr is published behind a reverse proxy. Example: /bazarr. Leave this empty when Bazarr is not behind a reverse proxy.")]
     public string BazarrBaseUrl { get; set; } = string.Empty;
 
     [DisplayName("Bazarr API key")]
