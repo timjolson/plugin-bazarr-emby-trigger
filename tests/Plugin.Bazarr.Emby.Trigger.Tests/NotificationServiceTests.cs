@@ -39,6 +39,26 @@ public class NotificationServiceTests
         Assert.All(sent, item => Assert.Equal("Bazarr subtitles downloaded", item.Title));
     }
 
+    [Fact]
+    public async Task NotifyConnectionFailureAsync_UsesExpectedTitleAndErrorMessage()
+    {
+        var sent = new List<NotificationRequest>();
+        var notificationManager = new RecordingNotificationManager(sent);
+        var service = new NotificationService(notificationManager, _ => null);
+        var search = new PendingSearchRecord
+        {
+            ContentType = MediaBrowser.Controller.Providers.VideoContentType.Movie,
+            Title = "Example Movie",
+            ProductionYear = 2024,
+        };
+
+        await service.NotifyConnectionFailureAsync(search, "Unable to connect to Bazarr.", CancellationToken.None);
+
+        var notification = Assert.Single(sent);
+        Assert.Equal("Bazarr connection failed", notification.Title);
+        Assert.Contains("Unable to connect to Bazarr.", notification.Description);
+    }
+
     private sealed class RecordingNotificationManager : INotificationManager
     {
         private readonly List<NotificationRequest> sent;

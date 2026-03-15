@@ -24,15 +24,22 @@ public class BazarrClient
     public async Task<(bool Success, string Message, string Endpoint)> TestConnectionAsync(PluginOptions configuration, CancellationToken cancellationToken)
     {
         var endpoint = BuildEndpointSummary(configuration);
-        using (var request = CreateRequest(HttpMethod.Get, configuration, "/api/system/ping"))
-        using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+        try
         {
-            if (response.IsSuccessStatusCode)
+            using (var request = CreateRequest(HttpMethod.Get, configuration, "/api/system/ping"))
+            using (var response = await SendAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                return (true, "Bazarr responded successfully.", endpoint);
-            }
+                if (response.IsSuccessStatusCode)
+                {
+                    return (true, "Bazarr responded successfully.", endpoint);
+                }
 
-            return (false, $"Bazarr returned {(int)response.StatusCode} {response.ReasonPhrase}.", endpoint);
+                return (false, $"Bazarr returned {(int)response.StatusCode} {response.ReasonPhrase}.", endpoint);
+            }
+        }
+        catch (BazarrRequestException ex) when (ex.Kind == BazarrRequestFailureKind.Connection)
+        {
+            return (false, ex.Message, endpoint);
         }
     }
 
@@ -60,9 +67,9 @@ public class BazarrClient
         {
             var path = $"/api/movies?radarrid={match.MovieId}&action=search-missing";
             using (var request = CreateRequest(new HttpMethod("PATCH"), configuration, path, search))
-            using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+            using (var response = await SendAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                response.EnsureSuccessStatusCode();
+                EnsureSuccess(response);
             }
 
             return;
@@ -93,9 +100,9 @@ public class BazarrClient
         using (var request = CreateRequest(HttpMethod.Post, configuration, "/api/providers/episodes", search))
         {
             request.Content = new FormUrlEncodedContent(form);
-            using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+            using (var response = await SendAsync(request, cancellationToken).ConfigureAwait(false))
             {
-                response.EnsureSuccessStatusCode();
+                EnsureSuccess(response);
             }
         }
     }
@@ -110,9 +117,9 @@ public class BazarrClient
     private async Task<T> GetJsonAsync<T>(PluginOptions configuration, string relativePath, CancellationToken cancellationToken) where T : class
     {
         using (var request = CreateRequest(HttpMethod.Get, configuration, relativePath))
-        using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
+        using (var response = await SendAsync(request, cancellationToken).ConfigureAwait(false))
         {
-            response.EnsureSuccessStatusCode();
+            EnsureSuccess(response);
             using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
             using (var copy = new MemoryStream())
             {
@@ -125,6 +132,34 @@ public class BazarrClient
                 }
             }
         }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new BazarrRequestException(BazarrRequestFailureKind.Connection, "Timed out while connecting to Bazarr.", ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new BazarrRequestException(BazarrRequestFailureKind.Connection, "Unable to connect to Bazarr.", ex);
+        }
+    }
+
+    private static void EnsureSuccess(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        throw new BazarrRequestException(
+            BazarrRequestFailureKind.Api,
+            $"Bazarr returned {(int)response.StatusCode} {response.ReasonPhrase}.");
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, PluginOptions configuration, string relativePath, PendingSearchRecord? search = null)

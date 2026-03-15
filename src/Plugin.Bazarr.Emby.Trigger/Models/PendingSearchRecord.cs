@@ -38,6 +38,7 @@ public class PendingSearchRecord
     [DataMember(Order = 27)] public int? BazarrMovieId { get; set; }
     [DataMember(Order = 28)] public List<SubtitleFileFingerprint> Snapshot { get; set; } = new();
     [DataMember(Order = 29)] public DateTime? LastSentUtc { get; set; }
+    [DataMember(Order = 30)] public DateTime? LastErrorNotificationUtc { get; set; }
 
     public string GetDisplayName()
     {

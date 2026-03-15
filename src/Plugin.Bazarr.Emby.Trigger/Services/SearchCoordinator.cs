@@ -31,6 +31,11 @@ public class SearchCoordinator : IDisposable
     private readonly ILibraryManager? libraryManager;
     private readonly object syncRoot = new object();
     private readonly List<PendingSearchRecord> searches;
+    private DateTime? nextAutomatedConnectionAttemptUtc;
+    private string? lastConnectionFailureMessage;
+    private DateTime? lastConnectionNotificationUtc;
+    private DateTime? lastApiNotificationUtc;
+    private DateTime? lastMatchNotificationUtc;
     private Timer? timer;
 
     public SearchCoordinator(
@@ -182,6 +187,23 @@ public class SearchCoordinator : IDisposable
                 continue;
             }
 
+            if (nextAutomatedConnectionAttemptUtc.HasValue && nextAutomatedConnectionAttemptUtc.Value > now)
+            {
+                queued.LastError = lastConnectionFailureMessage ?? "Bazarr connection is temporarily paused after a recent failure.";
+                await NotifySearchFailureAsync(
+                        queued,
+                        BazarrRequestFailureKind.Connection,
+                        queued.LastError,
+                        now,
+                        perRequestRetryDelay,
+                        cancellationToken,
+                        respectRateLimit: true)
+                    .ConfigureAwait(false);
+                MoveToBack(queued);
+                Persist();
+                continue;
+            }
+
             if (!rateLimiter.TryAcquire(now, searchesPerHour))
             {
                 if (options.VerboseLogging && !rateLimitLogged)
@@ -206,17 +228,23 @@ public class SearchCoordinator : IDisposable
                 queued.LastAttemptUtc = now;
                 queued.RetryCount++;
                 var catalog = await catalogCache.GetAsync(options, TryParseInt(queued.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
+                ResetConnectionFailureState();
+                ResetApiNotificationState();
                 var match = matcher.Match(queued, catalog);
                 if (match == null)
                 {
                     queued.LastError = "No Bazarr catalog match was found.";
                     logger.Warn($"No Bazarr match found for queued subtitle request {queued.Id}: {queued.GetDisplayName()}.");
+                    await NotifyMatchFailureAsync(queued, now, perRequestRetryDelay, cancellationToken).ConfigureAwait(false);
+                    MoveToBack(queued);
                     Persist();
-                    return;
+                    continue;
                 }
 
                 logger.Info($"Matched queued subtitle request {queued.Id}: {match.Explanation}");
                 await bazarrClient.TriggerSearchAsync(options, queued, match, cancellationToken).ConfigureAwait(false);
+                ResetConnectionFailureState();
+                ResetApiNotificationState();
                 queued.State = PendingSearchState.Triggered;
                 // Preserve the original successful Bazarr send time for TTL checks even when
                 // older queue files or future migrations populate TriggeredUtc ahead of resends.
@@ -226,15 +254,49 @@ public class SearchCoordinator : IDisposable
                 queued.BazarrSeriesId = match.SeriesId == 0 ? queued.BazarrSeriesId : match.SeriesId;
                 queued.BazarrEpisodeId = match.EpisodeId == 0 ? queued.BazarrEpisodeId : match.EpisodeId;
                 queued.LastError = null;
+                queued.LastErrorNotificationUtc = null;
                 MoveToBack(queued);
                 Persist();
+            }
+            catch (BazarrRequestException ex)
+            {
+                queued.LastError = ex.Message;
+                logger.ErrorException($"Bazarr request failed for queued subtitle search {queued.Id}.", ex);
+                if (ex.Kind == BazarrRequestFailureKind.Connection)
+                {
+                    nextAutomatedConnectionAttemptUtc = now.Add(perRequestRetryDelay);
+                    lastConnectionFailureMessage = ex.Message;
+                }
+
+                await NotifySearchFailureAsync(
+                        queued,
+                        ex.Kind,
+                        ex.Message,
+                        now,
+                        perRequestRetryDelay,
+                        cancellationToken,
+                        respectRateLimit: true)
+                    .ConfigureAwait(false);
+                MoveToBack(queued);
+                Persist();
+                continue;
             }
             catch (Exception ex)
             {
                 queued.LastError = ex.Message;
                 logger.ErrorException($"Bazarr request failed for queued subtitle search {queued.Id}.", ex);
+                await NotifySearchFailureAsync(
+                        queued,
+                        BazarrRequestFailureKind.Api,
+                        ex.Message,
+                        now,
+                        perRequestRetryDelay,
+                        cancellationToken,
+                        respectRateLimit: true)
+                    .ConfigureAwait(false);
+                MoveToBack(queued);
                 Persist();
-                return;
+                continue;
             }
         }
     }
@@ -467,6 +529,97 @@ public class SearchCoordinator : IDisposable
         existing.BazarrMovieId ??= incoming.BazarrMovieId;
         existing.BazarrSeriesId ??= incoming.BazarrSeriesId;
         existing.BazarrEpisodeId ??= incoming.BazarrEpisodeId;
+    }
+
+    private async Task NotifyMatchFailureAsync(PendingSearchRecord queued, DateTime now, TimeSpan retryDelay, CancellationToken cancellationToken)
+    {
+        if (!ShouldNotify(queued, ref lastMatchNotificationUtc, now, retryDelay, respectRateLimit: true))
+        {
+            return;
+        }
+
+        await notificationService.NotifyMatchFailureAsync(queued, cancellationToken).ConfigureAwait(false);
+        queued.LastErrorNotificationUtc = now;
+    }
+
+    private async Task NotifySearchFailureAsync(
+        PendingSearchRecord queued,
+        BazarrRequestFailureKind failureKind,
+        string error,
+        DateTime now,
+        TimeSpan retryDelay,
+        CancellationToken cancellationToken,
+        bool respectRateLimit)
+    {
+        ref var lastNotificationUtc = ref GetLastNotificationUtc(failureKind);
+        if (!ShouldNotify(queued, ref lastNotificationUtc, now, retryDelay, respectRateLimit))
+        {
+            return;
+        }
+
+        if (failureKind == BazarrRequestFailureKind.Connection)
+        {
+            await notificationService.NotifyConnectionFailureAsync(queued, error, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await notificationService.NotifyApiFailureAsync(queued, error, cancellationToken).ConfigureAwait(false);
+        }
+
+        queued.LastErrorNotificationUtc = now;
+    }
+
+    private ref DateTime? GetLastNotificationUtc(BazarrRequestFailureKind failureKind)
+    {
+        if (failureKind == BazarrRequestFailureKind.Connection)
+        {
+            return ref lastConnectionNotificationUtc;
+        }
+
+        return ref lastApiNotificationUtc;
+    }
+
+    private static bool ShouldNotify(
+        PendingSearchRecord queued,
+        ref DateTime? lastNotificationUtc,
+        DateTime now,
+        TimeSpan retryDelay,
+        bool respectRateLimit)
+    {
+        if (HasImmediateNotificationRequestor(queued))
+        {
+            return !queued.LastErrorNotificationUtc.HasValue
+                || !queued.LastAttemptUtc.HasValue
+                || queued.LastErrorNotificationUtc.Value < queued.LastAttemptUtc.Value;
+        }
+
+        if (!respectRateLimit)
+        {
+            return true;
+        }
+
+        if (!lastNotificationUtc.HasValue || lastNotificationUtc.Value.Add(retryDelay) <= now)
+        {
+            lastNotificationUtc = now;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasImmediateNotificationRequestor(PendingSearchRecord queued)
+        => queued.GetNotificationUserIds().Count > 0;
+
+    private void ResetConnectionFailureState()
+    {
+        nextAutomatedConnectionAttemptUtc = null;
+        lastConnectionFailureMessage = null;
+        lastConnectionNotificationUtc = null;
+    }
+
+    private void ResetApiNotificationState()
+    {
+        lastApiNotificationUtc = null;
     }
 
     private static bool IsEquivalentSearch(PendingSearchRecord left, PendingSearchRecord right)

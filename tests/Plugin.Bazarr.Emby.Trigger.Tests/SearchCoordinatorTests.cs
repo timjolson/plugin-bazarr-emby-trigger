@@ -164,6 +164,77 @@ public class SearchCoordinatorTests
     }
 
     [Fact]
+    public async Task RunQueueProcessingPassAsync_NoBazarrMatch_NotifiesTrackedRequestorImmediately()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var record = scenario.CreateUnregisteredPendingRecord("user-1", "Unknown Movie", 308);
+        scenario.Repository.Save(new[] { record });
+        using var coordinator = scenario.CreateCoordinator();
+
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+
+        var notification = Assert.Single(scenario.NotificationManager.Sent);
+        Assert.Equal("Bazarr match not found", notification.Title);
+
+        var saved = Assert.Single(scenario.Repository.Load());
+        Assert.Equal(PendingSearchState.Queued, saved.State);
+        Assert.False(string.IsNullOrWhiteSpace(saved.LastError));
+        Assert.NotNull(saved.LastErrorNotificationUtc);
+    }
+
+    [Fact]
+    public async Task RunQueueProcessingPassAsync_FailedFrontItem_DoesNotBlockLaterQueuedItem()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var unmatched = scenario.CreateUnregisteredPendingRecord("user-1", "Unknown Front Movie", 309);
+        var queued = scenario.CreatePendingRecord("user-2", "Queued Back Movie", 310);
+        scenario.Repository.Save(new[] { unmatched, queued });
+        using var coordinator = scenario.CreateCoordinator();
+
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+
+        Assert.Contains(310, scenario.Handler.TriggeredMovieIds);
+        Assert.DoesNotContain(309, scenario.Handler.TriggeredMovieIds);
+    }
+
+    [Fact]
+    public async Task RunQueueProcessingPassAsync_ConnectionFailure_IsNotRetriedOrRenotifiedOnImmediateNextPass()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var record = scenario.CreatePendingRecord("user-1", "Offline Movie", 311);
+        scenario.Handler.FailCatalogWithConnectionError = true;
+        scenario.Repository.Save(new[] { record });
+        using var coordinator = scenario.CreateCoordinator();
+
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+
+        Assert.Equal(2, scenario.Handler.CatalogRequestCount);
+        var notification = Assert.Single(scenario.NotificationManager.Sent);
+        Assert.Equal("Bazarr connection failed", notification.Title);
+
+        var saved = Assert.Single(scenario.Repository.Load());
+        Assert.Equal(PendingSearchState.Queued, saved.State);
+        Assert.NotNull(saved.LastErrorNotificationUtc);
+    }
+
+    [Fact]
+    public async Task RunQueueProcessingPassAsync_ApiFailure_NotifiesTrackedRequestorImmediately()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        var record = scenario.CreatePendingRecord("user-1", "Api Failure Movie", 312);
+        scenario.Handler.FailMovieRequest(312);
+        scenario.Repository.Save(new[] { record });
+        using var coordinator = scenario.CreateCoordinator();
+
+        await coordinator.RunQueueProcessingPassAsync(CancellationToken.None);
+
+        var notification = Assert.Single(scenario.NotificationManager.Sent);
+        Assert.Equal("Bazarr request failed", notification.Title);
+        Assert.Equal(1, scenario.Handler.GetMovieAttemptCount(312));
+    }
+
+    [Fact]
     public async Task RunQueueProcessingPassAsync_SkippedTriggeredRequest_AllowsLaterQueuedRequestToSend()
     {
         using var scenario = new SearchCoordinatorScenario();
@@ -213,7 +284,7 @@ public class SearchCoordinatorTests
             Repository = new PendingSearchRepository(directory.FullName);
             catalogCache = new BazarrCatalogCache(bazarrClient);
             NotificationManager = new TestNotificationManager();
-            notificationService = new NotificationService(NotificationManager, _ => null);
+            notificationService = new NotificationService(NotificationManager, userId => string.IsNullOrWhiteSpace(userId) ? null : new User());
             Coordinator = CreateCoordinator();
         }
 
@@ -267,6 +338,23 @@ public class SearchCoordinatorTests
             pending.TriggeredUtc = triggeredUtc ?? DateTime.UtcNow;
             pending.LastSentUtc = lastSentUtc ?? pending.TriggeredUtc;
             pending.Snapshot = snapshotService.Capture(pending.MediaPath);
+            return pending;
+        }
+
+        public PendingSearchRecord CreateUnregisteredPendingRecord(string userId, string title, int radarrId, int productionYear = 2024)
+        {
+            var mediaPath = EnsureMediaFile($"{title} ({productionYear}).mkv");
+            var pending = new PendingSearchRecord
+            {
+                ContentType = VideoContentType.Movie,
+                MediaPath = mediaPath,
+                Title = title,
+                ProductionYear = productionYear,
+                RequestedLanguage = "eng",
+                ForcedOnly = false,
+                RadarrId = radarrId.ToString(),
+            };
+            pending.AddNotificationUserId(userId);
             return pending;
         }
 
@@ -336,6 +424,8 @@ public class SearchCoordinatorTests
         private readonly Dictionary<int, int> movieAttemptCounts = new();
 
         public List<int> TriggeredMovieIds { get; } = new();
+        public int CatalogRequestCount { get; private set; }
+        public bool FailCatalogWithConnectionError { get; set; }
 
         public void RegisterMovie(int radarrId, string title, int year, string path)
             => movies[radarrId] = (title, year, path);
@@ -352,6 +442,12 @@ public class SearchCoordinatorTests
 
             if (request.Method == HttpMethod.Get && string.Equals(path, "/api/movies", StringComparison.Ordinal))
             {
+                CatalogRequestCount++;
+                if (FailCatalogWithConnectionError)
+                {
+                    throw new HttpRequestException("Connection refused.");
+                }
+
                 return Task.FromResult(JsonResponse(new
                 {
                     data = movies.Select(item => new
@@ -367,6 +463,12 @@ public class SearchCoordinatorTests
 
             if (request.Method == HttpMethod.Get && (string.Equals(path, "/api/series", StringComparison.Ordinal) || string.Equals(path, "/api/episodes", StringComparison.Ordinal)))
             {
+                CatalogRequestCount++;
+                if (FailCatalogWithConnectionError)
+                {
+                    throw new HttpRequestException("Connection refused.");
+                }
+
                 return Task.FromResult(JsonResponse(new { data = Array.Empty<object>() }));
             }
 

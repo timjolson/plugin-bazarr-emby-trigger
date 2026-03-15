@@ -50,6 +50,42 @@ public class NotificationService
         return Task.CompletedTask;
     }
 
+    public Task NotifyConnectionFailureAsync(PendingSearchRecord search, string error, CancellationToken cancellationToken)
+    {
+        SendToRequestors(
+            search,
+            "Bazarr connection failed",
+            $"A Bazarr connection error prevented subtitle processing for {search.GetDisplayName()}: {error}",
+            LogSeverity.Error,
+            cancellationToken);
+
+        return Task.CompletedTask;
+    }
+
+    public Task NotifyApiFailureAsync(PendingSearchRecord search, string error, CancellationToken cancellationToken)
+    {
+        SendToRequestors(
+            search,
+            "Bazarr request failed",
+            $"A Bazarr API error prevented subtitle processing for {search.GetDisplayName()}: {error}",
+            LogSeverity.Error,
+            cancellationToken);
+
+        return Task.CompletedTask;
+    }
+
+    public Task NotifyMatchFailureAsync(PendingSearchRecord search, CancellationToken cancellationToken)
+    {
+        SendToRequestors(
+            search,
+            "Bazarr match not found",
+            $"Bazarr metadata did not contain a match for {search.GetDisplayName()}.",
+            LogSeverity.Warn,
+            cancellationToken);
+
+        return Task.CompletedTask;
+    }
+
     private void SendToRequestors(PendingSearchRecord search, string title, string description, LogSeverity severity, CancellationToken cancellationToken)
     {
         var requestorIds = search.GetNotificationUserIds();
