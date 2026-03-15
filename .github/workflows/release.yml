@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-dotnet@v4.3.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Plugin.Bazarr.Emby.Trigger.sln
+      - name: Build
+        run: dotnet build Plugin.Bazarr.Emby.Trigger.sln --configuration Release --no-restore
+      - name: Test
+        run: dotnet test Plugin.Bazarr.Emby.Trigger.sln --configuration Release --no-build
+      - name: Calculate version metadata
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+            echo "tag=dev-v0.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "name=Development build 0.1.${GITHUB_RUN_NUMBER}-dev" >> "$GITHUB_OUTPUT"
+            echo "artifact=plugin-bazarr-emby-trigger-0.1.${GITHUB_RUN_NUMBER}-dev.zip" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v0.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "name=Stable build 0.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+            echo "artifact=plugin-bazarr-emby-trigger-0.1.${GITHUB_RUN_NUMBER}.zip" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package plugin
+        run: |
+          mkdir -p dist
+          cp src/Plugin.Bazarr.Emby.Trigger/bin/Release/netstandard2.0/Plugin.Bazarr.Emby.Trigger.dll dist/
+          cd dist
+          zip "${{ steps.version.outputs.artifact }}" Plugin.Bazarr.Emby.Trigger.dll
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4.6.1
+        with:
+          name: ${{ steps.version.outputs.artifact }}
+          path: dist/${{ steps.version.outputs.artifact }}
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2.2.1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.name }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          files: dist/${{ steps.version.outputs.artifact }}
