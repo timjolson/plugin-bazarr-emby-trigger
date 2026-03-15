@@ -94,22 +94,22 @@ public class BazarrClient
             return;
         }
 
-        // Bazarr does not provide an episode search-missing endpoint like the movie API, so use
-        // the manual provider endpoint and submit Bazarr's top-ranked result on the server's behalf.
+        // Bazarr does not provide an episode search-missing endpoint like the movie API, so the
+        // plugin uses the manual provider endpoint and submits Bazarr's top-ranked candidate.
         var candidateSubtitles = await GetJsonAsync<BazarrManualSearchResponse>(configuration, $"/api/providers/episodes?episodeid={match.EpisodeId}", cancellationToken).ConfigureAwait(false);
-        var selectedSubtitle = candidateSubtitles.Data
+        var preferredCandidate = candidateSubtitles.Data
             .OrderByDescending(item => item.Score)
             .ThenByDescending(item => item.OriginalScore)
             .FirstOrDefault();
 
-        if (selectedSubtitle == null)
+        if (preferredCandidate == null)
         {
             throw new InvalidOperationException("Bazarr returned no manual subtitle candidates for the episode search.");
         }
 
         if (configuration.VerboseLogging)
         {
-            logger?.Info($"Selected Bazarr episode subtitle candidate for episode {match.EpisodeId} from provider '{selectedSubtitle.Provider}' with score {selectedSubtitle.Score}.");
+            logger?.Info($"Selected Bazarr episode subtitle candidate for episode {match.EpisodeId} from provider '{preferredCandidate.Provider}' with score {preferredCandidate.Score}.");
         }
 
         var form = new Dictionary<string, string>
@@ -117,10 +117,10 @@ public class BazarrClient
             ["seriesid"] = match.SeriesId.ToString(),
             ["episodeid"] = match.EpisodeId.ToString(),
             ["hi"] = "False",
-            ["forced"] = search.ForcedOnly ? "True" : selectedSubtitle.Forced,
-            ["original_format"] = selectedSubtitle.OriginalFormat,
-            ["provider"] = selectedSubtitle.Provider,
-            ["subtitle"] = selectedSubtitle.Subtitle,
+            ["forced"] = search.ForcedOnly ? "True" : preferredCandidate.Forced,
+            ["original_format"] = preferredCandidate.OriginalFormat,
+            ["provider"] = preferredCandidate.Provider,
+            ["subtitle"] = preferredCandidate.Subtitle,
         };
 
         using (var request = CreateRequest(HttpMethod.Post, configuration, "/api/providers/episodes", search))

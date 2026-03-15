@@ -32,12 +32,16 @@ public class BazarrCatalogCacheTests
             MediaPath = "/library/movies/Dune (2021).mkv",
         };
 
-        await Task.WhenAll(
+        var results = await Task.WhenAll(
             cache.GetAsync(options, search, CancellationToken.None),
             cache.GetAsync(options, search, CancellationToken.None),
             cache.GetAsync(options, search, CancellationToken.None));
 
         Assert.Equal(2, handler.RequestCount);
+        Assert.Same(results[0], results[1]);
+        Assert.Same(results[0], results[2]);
+        Assert.Empty(results[0].Movies);
+        Assert.Empty(results[0].Series);
     }
 
     private sealed class DelayedRecordingHandler : HttpMessageHandler
