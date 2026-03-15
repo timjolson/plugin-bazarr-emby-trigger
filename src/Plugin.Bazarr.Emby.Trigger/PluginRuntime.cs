@@ -14,7 +14,7 @@ internal static class PluginRuntime
     private static SearchCoordinator? coordinator;
     private static ILogger? logger;
 
-    public static void Initialize(Func<Options.PluginOptions> optionsAccessor, INotificationManager notificationManager, IUserManager userManager, ILogManager logManager, string pluginDataDirectory)
+    public static void Initialize(Func<Options.PluginOptions> optionsAccessor, INotificationManager notificationManager, IUserManager userManager, ILibraryManager libraryManager, ILogManager logManager, string pluginDataDirectory)
     {
         lock (SyncRoot)
         {
@@ -34,6 +34,7 @@ internal static class PluginRuntime
                 new SubtitleSnapshotService(),
                 new PendingSearchRepository(pluginDataDirectory),
                 new NotificationService(notificationManager, userManager),
+                libraryManager,
                 logger);
             coordinator.Start();
             logger.Info("Bazarr Emby Trigger runtime initialized.");

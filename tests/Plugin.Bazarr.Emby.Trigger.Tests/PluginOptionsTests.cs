@@ -14,6 +14,21 @@ public class PluginOptionsTests
 
         Assert.Equal("http://localhost", options.BazarrHost);
         Assert.Equal(string.Empty, options.BazarrBaseUrl);
+        Assert.True(options.PollMediaFolders);
+    }
+
+    [Fact]
+    public void PollMediaFolders_DescriptionExplainsPollingAndEventBehavior()
+    {
+        var property = typeof(PluginOptions).GetProperty(nameof(PluginOptions.PollMediaFolders));
+        var description = property?.GetCustomAttributes(typeof(DescriptionAttribute), inherit: false)
+            .OfType<DescriptionAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(description);
+        Assert.Equal(
+            "When checked, triggered subtitle requests poll their media folders for subtitle changes using the queue poll interval. When unchecked, the plugin waits for Emby media or folder update events and only runs subtitle comparisons for matching updates.",
+            description!.Description);
     }
 
     [Fact]

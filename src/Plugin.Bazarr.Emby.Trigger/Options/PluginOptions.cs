@@ -44,6 +44,10 @@ public class PluginOptions : EditableOptionsBase
     [Description("How often the background worker checks queued requests and subtitle arrival.")]
     public int QueuePollIntervalSeconds { get; set; } = 30;
 
+    [DisplayName("Poll Media Folders")]
+    [Description("When checked, triggered subtitle requests poll their media folders for subtitle changes using the queue poll interval. When unchecked, the plugin waits for Emby media or folder update events and only runs subtitle comparisons for matching updates.")]
+    public bool PollMediaFolders { get; set; } = true;
+
     [DisplayName("Subtitle detection timeout (minutes)")]
     [Description("How long to wait for a new subtitle file before the request is marked as timed out.")]
     public int SearchTimeoutMinutes { get; set; } = 20;

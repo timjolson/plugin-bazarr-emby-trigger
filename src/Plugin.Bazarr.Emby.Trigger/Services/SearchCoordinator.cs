@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Logging;
@@ -27,6 +28,7 @@ public class SearchCoordinator : IDisposable
     private readonly PendingSearchRepository repository;
     private readonly NotificationService notificationService;
     private readonly ILogger logger;
+    private readonly ILibraryManager? libraryManager;
     private readonly object syncRoot = new object();
     private readonly List<PendingSearchRecord> searches;
     private Timer? timer;
@@ -40,6 +42,7 @@ public class SearchCoordinator : IDisposable
         SubtitleSnapshotService snapshotService,
         PendingSearchRepository repository,
         NotificationService notificationService,
+        ILibraryManager? libraryManager,
         ILogger logger)
     {
         this.optionsAccessor = optionsAccessor;
@@ -50,6 +53,7 @@ public class SearchCoordinator : IDisposable
         this.snapshotService = snapshotService;
         this.repository = repository;
         this.notificationService = notificationService;
+        this.libraryManager = libraryManager;
         this.logger = logger;
         searches = repository.Load();
 
@@ -99,6 +103,8 @@ public class SearchCoordinator : IDisposable
     public void Start()
     {
         var options = optionsAccessor();
+        libraryManager?.ItemAdded += OnLibraryItemChanged;
+        libraryManager?.ItemUpdated += OnLibraryItemChanged;
         timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(Math.Max(options.QueuePollIntervalSeconds, 5)));
     }
 
@@ -112,7 +118,7 @@ public class SearchCoordinator : IDisposable
         try
         {
             await TriggerQueuedSearchesAsync(cancellationToken).ConfigureAwait(false);
-            await MonitorTriggeredSearchesAsync(cancellationToken).ConfigureAwait(false);
+            await MonitorTriggeredSearchesAsync(optionsAccessor().PollMediaFolders, null, null, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -182,7 +188,20 @@ public class SearchCoordinator : IDisposable
         }
     }
 
-    private async Task MonitorTriggeredSearchesAsync(CancellationToken cancellationToken)
+    internal Task HandleLibraryItemChangeAsync(string? itemPath, string? parentPath, CancellationToken cancellationToken)
+    {
+        if (optionsAccessor().PollMediaFolders)
+        {
+            return Task.CompletedTask;
+        }
+
+        return MonitorTriggeredSearchesAsync(true, itemPath, parentPath, cancellationToken);
+    }
+
+    internal Task RunTriggeredMonitoringPassAsync(CancellationToken cancellationToken)
+        => MonitorTriggeredSearchesAsync(optionsAccessor().PollMediaFolders, null, null, cancellationToken);
+
+    private async Task MonitorTriggeredSearchesAsync(bool checkForSubtitleChanges, string? changedItemPath, string? changedParentPath, CancellationToken cancellationToken)
     {
         List<PendingSearchRecord> completed = new List<PendingSearchRecord>();
         List<PendingSearchRecord> timedOut = new List<PendingSearchRecord>();
@@ -192,7 +211,9 @@ public class SearchCoordinator : IDisposable
         {
             foreach (var search in searches.Where(item => item.State == PendingSearchState.Triggered).ToList())
             {
-                if (snapshotService.HasNewOrModifiedSubtitle(search.MediaPath, search.Snapshot))
+                if (checkForSubtitleChanges
+                    && IsRelevantLibraryChange(search, changedItemPath, changedParentPath)
+                    && snapshotService.HasNewOrModifiedSubtitle(search.MediaPath, search.Snapshot))
                 {
                     search.State = PendingSearchState.Completed;
                     completed.Add(search);
@@ -224,6 +245,28 @@ public class SearchCoordinator : IDisposable
                 searches.RemoveAll(item => item.State == PendingSearchState.Completed || item.State == PendingSearchState.TimedOut);
                 repository.Save(searches);
             }
+        }
+    }
+
+    private void OnLibraryItemChanged(object? sender, ItemChangeEventArgs e)
+    {
+        if (optionsAccessor().PollMediaFolders)
+        {
+            return;
+        }
+
+        _ = HandleLibraryItemChangeSafeAsync(e.Item?.Path, e.Parent?.Path);
+    }
+
+    private async Task HandleLibraryItemChangeSafeAsync(string? itemPath, string? parentPath)
+    {
+        try
+        {
+            await HandleLibraryItemChangeAsync(itemPath, parentPath, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            logger.ErrorException("Event-driven subtitle monitoring failed.", ex);
         }
     }
 
@@ -426,11 +469,59 @@ public class SearchCoordinator : IDisposable
             return false;
         }
 
-        return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static string Normalize(string value)
         => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
+
+    private static bool IsRelevantLibraryChange(PendingSearchRecord search, string? changedItemPath, string? changedParentPath)
+    {
+        if (string.IsNullOrWhiteSpace(changedItemPath) && string.IsNullOrWhiteSpace(changedParentPath))
+        {
+            return true;
+        }
+
+        if (PathsEquivalent(search.MediaPath, changedItemPath))
+        {
+            return true;
+        }
+
+        var searchDirectory = GetDirectoryPath(search.MediaPath);
+        var changedItemDirectory = GetDirectoryPath(changedItemPath);
+        if (string.IsNullOrWhiteSpace(searchDirectory))
+        {
+            return false;
+        }
+
+        return PathsEquivalent(searchDirectory, changedItemPath)
+            || PathsEquivalent(searchDirectory, changedParentPath)
+            || PathsEquivalent(searchDirectory, changedItemDirectory);
+    }
+
+    private static string? GetDirectoryPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Directory.Exists(path) ? Path.GetFullPath(path) : Path.GetDirectoryName(Path.GetFullPath(path));
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private void Persist()
     {
@@ -442,6 +533,12 @@ public class SearchCoordinator : IDisposable
 
     public void Dispose()
     {
+        if (libraryManager != null)
+        {
+            libraryManager.ItemAdded -= OnLibraryItemChanged;
+            libraryManager.ItemUpdated -= OnLibraryItemChanged;
+        }
+
         timer?.Dispose();
     }
 }

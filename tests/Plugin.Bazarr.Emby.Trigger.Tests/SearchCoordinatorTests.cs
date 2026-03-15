@@ -53,6 +53,41 @@ public class SearchCoordinatorTests
         Assert.Equal(new[] { "user-1", "user-2" }, record.GetNotificationUserIds());
     }
 
+    [Fact]
+    public async Task RunTriggeredMonitoringPassAsync_WhenPollingEnabled_CompletesSearchAfterSubtitleAppears()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        scenario.Options.PollMediaFolders = true;
+        scenario.Repository.Save(new[] { scenario.CreateTriggeredRecord() });
+        using var coordinator = scenario.CreateCoordinator();
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(scenario.MediaPath)!, "Example Movie (2024).eng.srt"), "subtitle");
+
+        await coordinator.RunTriggeredMonitoringPassAsync(CancellationToken.None);
+
+        Assert.Empty(scenario.Repository.Load());
+        Assert.Single(scenario.NotificationManager.Sent);
+    }
+
+    [Fact]
+    public async Task RunTriggeredMonitoringPassAsync_WhenPollingDisabled_WaitsForMatchingLibraryEvent()
+    {
+        using var scenario = new SearchCoordinatorScenario();
+        scenario.Options.PollMediaFolders = false;
+        scenario.Repository.Save(new[] { scenario.CreateTriggeredRecord() });
+        using var coordinator = scenario.CreateCoordinator();
+        var subtitlePath = Path.Combine(Path.GetDirectoryName(scenario.MediaPath)!, "Example Movie (2024).eng.srt");
+        File.WriteAllText(subtitlePath, "subtitle");
+
+        await coordinator.RunTriggeredMonitoringPassAsync(CancellationToken.None);
+        Assert.Single(scenario.Repository.Load());
+        Assert.Empty(scenario.NotificationManager.Sent);
+
+        await coordinator.HandleLibraryItemChangeAsync(subtitlePath, Path.GetDirectoryName(scenario.MediaPath), CancellationToken.None);
+
+        Assert.Empty(scenario.Repository.Load());
+        Assert.Single(scenario.NotificationManager.Sent);
+    }
+
     private sealed class SearchCoordinatorScenario : IDisposable
     {
         private readonly DirectoryInfo directory;
@@ -72,15 +107,20 @@ public class SearchCoordinatorTests
             File.WriteAllText(MediaPath, "video");
             Repository = new PendingSearchRepository(directory.FullName);
             catalogCache = new BazarrCatalogCache(bazarrClient);
-            notificationService = new NotificationService(new TestNotificationManager(), _ => null);
+            NotificationManager = new TestNotificationManager();
+            notificationService = new NotificationService(NotificationManager, _ => null);
             Coordinator = CreateCoordinator();
         }
 
         public string MediaPath { get; }
 
+        public PluginOptions Options => options;
+
         public PendingSearchRepository Repository { get; }
 
         public SearchCoordinator Coordinator { get; }
+
+        public TestNotificationManager NotificationManager { get; }
 
         public SearchCoordinator CreateCoordinator()
             => new(
@@ -92,6 +132,7 @@ public class SearchCoordinatorTests
                 snapshotService,
                 Repository,
                 notificationService,
+                null,
                 logger);
 
         public PendingSearchRecord CreatePendingRecord(string userId)
@@ -109,6 +150,20 @@ public class SearchCoordinatorTests
             return pending;
         }
 
+        public PendingSearchRecord CreateTriggeredRecord()
+            => new()
+            {
+                ContentType = VideoContentType.Movie,
+                MediaPath = MediaPath,
+                Title = "Example Movie",
+                ProductionYear = 2024,
+                RequestedLanguage = "eng",
+                ForcedOnly = false,
+                State = PendingSearchState.Triggered,
+                TriggeredUtc = DateTime.UtcNow,
+                Snapshot = snapshotService.Capture(MediaPath),
+            };
+
         public void Dispose()
         {
             Coordinator.Dispose();
@@ -118,6 +173,8 @@ public class SearchCoordinatorTests
 
     private sealed class TestNotificationManager : INotificationManager
     {
+        public List<NotificationRequest> Sent { get; } = new();
+
         public NotificationTokenCategory[] GetNotificationTokens(string category)
             => Array.Empty<NotificationTokenCategory>();
 
@@ -130,6 +187,7 @@ public class SearchCoordinatorTests
 
         public void SendNotification(NotificationRequest request)
         {
+            Sent.Add(request);
         }
 
         public Task SendNotification(MediaBrowser.Model.Notifications.NotificationRequest request, CancellationToken cancellationToken)
