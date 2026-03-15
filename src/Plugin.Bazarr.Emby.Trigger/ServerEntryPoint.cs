@@ -11,10 +11,12 @@ public class ServerEntryPoint : IServerEntryPoint
 {
     public ServerEntryPoint(INotificationManager notificationManager, IUserManager userManager, ILibraryManager libraryManager, ILogManager logManager)
     {
-        if (Plugin.Instance != null)
+        if (Plugin.Instance == null)
         {
-            PluginRuntime.Initialize(() => Plugin.Instance.Options, notificationManager, userManager, libraryManager, logManager, Plugin.Instance.GetPluginDataDirectory());
+            return;
         }
+
+        PluginRuntime.Initialize(() => Plugin.Instance.Options, notificationManager, userManager, libraryManager, logManager, Plugin.Instance.GetPluginDataDirectory());
     }
 
     public void Run()

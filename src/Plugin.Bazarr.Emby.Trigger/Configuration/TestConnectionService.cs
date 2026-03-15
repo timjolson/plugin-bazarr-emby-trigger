@@ -46,7 +46,7 @@ public class TestConnectionService : IService
     public object Post(TestConnectionRequest request)
     {
         var options = Plugin.Instance?.Options ?? new PluginOptions();
-        var client = new BazarrClient(SharedHttpClient);
+        var client = new BazarrClient(SharedHttpClient, Plugin.Instance?.Logger);
         var result = client.TestConnectionAsync(options, default).GetAwaiter().GetResult();
         return new TestConnectionResult
         {

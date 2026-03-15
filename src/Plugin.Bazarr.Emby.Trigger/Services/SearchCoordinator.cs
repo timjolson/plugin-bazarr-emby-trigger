@@ -98,13 +98,22 @@ public class SearchCoordinator : IDisposable
             repository.Save(searches);
         }
 
+        var options = optionsAccessor();
         if (existing != null)
         {
-            logger.Info($"Merged subtitle request into pending search {existing.Id} for {existing.GetDisplayName()} ({existing.RequestedLanguage}, forced={existing.ForcedOnly}).");
+            if (options.VerboseLogging)
+            {
+                logger.Info($"Merged subtitle request into pending search {existing.Id} for {existing.GetDisplayName()} ({existing.RequestedLanguage}, forced={existing.ForcedOnly}).");
+            }
+
             return Task.CompletedTask;
         }
 
-        logger.Info($"Queued subtitle request {pending.Id} for {pending.GetDisplayName()} ({pending.RequestedLanguage}, forced={pending.ForcedOnly}).");
+        if (options.VerboseLogging)
+        {
+            logger.Info($"Queued subtitle request {pending.Id} for {pending.GetDisplayName()} ({pending.RequestedLanguage}, forced={pending.ForcedOnly}).");
+        }
+
         return Task.CompletedTask;
     }
 
@@ -113,7 +122,8 @@ public class SearchCoordinator : IDisposable
         var options = optionsAccessor();
         libraryManager?.ItemAdded += OnLibraryItemChanged;
         libraryManager?.ItemUpdated += OnLibraryItemChanged;
-        timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(Math.Max(options.QueuePollIntervalSeconds, 5)));
+        var pollInterval = TimeSpan.FromSeconds(Math.Max(options.QueuePollIntervalSeconds, 5));
+        timer = new Timer(_ => Tick(), null, pollInterval, pollInterval);
     }
 
     private void Tick()
@@ -244,7 +254,11 @@ public class SearchCoordinator : IDisposable
                     continue;
                 }
 
-                logger.Info($"Matched queued subtitle request {queued.Id}: {match.Explanation}");
+                if (options.VerboseLogging)
+                {
+                    logger.Info($"Matched queued subtitle request {queued.Id}: {match.Explanation}");
+                }
+
                 await bazarrClient.TriggerSearchAsync(options, queued, match, cancellationToken).ConfigureAwait(false);
                 ResetConnectionFailureState();
                 ResetApiNotificationState();
@@ -638,7 +652,7 @@ public class SearchCoordinator : IDisposable
             return false;
         }
 
-        if (PathsEquivalent(left.MediaPath, right.MediaPath))
+        if (MatchingHelpers.PathsEquivalent(left.MediaPath, right.MediaPath))
         {
             return true;
         }
@@ -648,7 +662,7 @@ public class SearchCoordinator : IDisposable
             return SharedId(left.RadarrId, right.RadarrId)
                 || SharedId(left.ImdbId, right.ImdbId)
                 || SharedId(left.TmdbId, right.TmdbId)
-                || (string.Equals(Normalize(left.Title), Normalize(right.Title), StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(MatchingHelpers.Normalize(left.Title), MatchingHelpers.Normalize(right.Title), StringComparison.OrdinalIgnoreCase)
                     && left.ProductionYear == right.ProductionYear);
         }
 
@@ -659,7 +673,7 @@ public class SearchCoordinator : IDisposable
             || (SharedId(left.TvdbId, right.TvdbId)
                 && left.SeasonNumber == right.SeasonNumber
                 && left.EpisodeNumber == right.EpisodeNumber)
-            || (string.Equals(Normalize(left.SeriesName), Normalize(right.SeriesName), StringComparison.OrdinalIgnoreCase)
+            || (string.Equals(MatchingHelpers.Normalize(left.SeriesName), MatchingHelpers.Normalize(right.SeriesName), StringComparison.OrdinalIgnoreCase)
                 && left.SeasonNumber == right.SeasonNumber
                 && left.EpisodeNumber == right.EpisodeNumber);
     }
@@ -676,26 +690,6 @@ public class SearchCoordinator : IDisposable
         return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool PathsEquivalent(string? left, string? right)
-    {
-        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string Normalize(string value)
-        => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
-
     private static bool IsActiveSearch(PendingSearchRecord search)
         => search.State == PendingSearchState.Queued || search.State == PendingSearchState.Triggered;
 
@@ -709,7 +703,7 @@ public class SearchCoordinator : IDisposable
             return true;
         }
 
-        if (PathsEquivalent(search.MediaPath, changedItemPath))
+        if (MatchingHelpers.PathsEquivalent(search.MediaPath, changedItemPath))
         {
             return true;
         }
@@ -721,9 +715,9 @@ public class SearchCoordinator : IDisposable
             return false;
         }
 
-        return PathsEquivalent(searchDirectory, changedItemPath)
-            || PathsEquivalent(searchDirectory, changedParentPath)
-            || PathsEquivalent(searchDirectory, changedItemDirectory);
+        return MatchingHelpers.PathsEquivalent(searchDirectory, changedItemPath)
+            || MatchingHelpers.PathsEquivalent(searchDirectory, changedParentPath)
+            || MatchingHelpers.PathsEquivalent(searchDirectory, changedItemDirectory);
     }
 
     private static string? GetDirectoryPath(string? path)
