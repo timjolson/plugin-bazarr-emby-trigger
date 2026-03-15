@@ -12,7 +12,7 @@ public class ServerEntryPoint : IServerEntryPoint
     {
         if (Plugin.Instance != null)
         {
-            PluginRuntime.Initialize(Plugin.Instance.Configuration, notificationManager, logManager, Plugin.Instance.GetPluginDataDirectory());
+            PluginRuntime.Initialize(() => Plugin.Instance.Options, notificationManager, logManager, Plugin.Instance.GetPluginDataDirectory());
         }
     }
 

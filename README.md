@@ -28,7 +28,7 @@ Bazarr Emby Trigger is an Emby server plugin that registers as a subtitle provid
 ## Features
 
 - Emby subtitle-provider integration
-- Bazarr connection test endpoint for the dashboard UI
+- Emby Simple Plugin UI-based settings page plus a separate connection-tools page
 - Configurable host, port, reverse-proxy base URL, API key, queue rate limit, cache TTL, timeout, verbosity, and custom headers
 - Persistent pending-search cache stored in the plugin data directory
 - File snapshot comparison for subtitle arrival detection
@@ -52,7 +52,7 @@ Bazarr Emby Trigger is an Emby server plugin that registers as a subtitle provid
 
 ## Configuration
 
-The dashboard configuration page includes:
+The main settings page uses Emby's documented Simple Plugin UI for a single plugin settings page. It includes:
 
 - Bazarr host
 - Bazarr port
@@ -67,9 +67,9 @@ The dashboard configuration page includes:
 
 ### Validation and connection testing
 
-- Host and port are validated inline in the dashboard UI.
-- The page shows the resolved Bazarr API endpoint summary.
-- **Test Connection** calls the plugin's own server-side endpoint so the Bazarr API key stays in headers and out of URLs.
+- Host and port are validated server-side through the Simple Plugin UI options model.
+- The separate **Bazarr Connection Tools** page shows the resolved saved Bazarr endpoint summary.
+- **Test Connection** calls the plugin's own server-side endpoint using the already-saved options so the Bazarr API key stays server-side and out of URLs or browser history.
 
 ## Local build instructions
 
@@ -98,10 +98,10 @@ The repository is structured around a two-branch release model even though GitHu
 
 ### Emby-facing layer
 
-- `Plugin.cs` wires the plugin metadata and dashboard page.
+- `Plugin.cs` now derives from Emby's documented `BasePluginSimpleUI<TOptions>` for the main settings page and adds a small extra page only for connection tools.
 - `BazarrSubtitleProvider.cs` implements `ISubtitleProvider` and intentionally returns an empty list so Emby treats the action as a background trigger.
 - `ServerEntryPoint.cs` starts the long-lived queue processor.
-- `Configuration/TestConnectionService.cs` exposes a server-side connection test endpoint for the settings page.
+- `Configuration/TestConnectionService.cs` exposes server-side endpoints that return the saved connection summary and execute a saved-configuration Bazarr connection test.
 
 ### Core services
 
@@ -115,6 +115,7 @@ The repository is structured around a two-branch release model even though GitHu
 
 ## Important design decisions
 
+- **Doc-aligned UI structure:** The main settings page follows Emby's documented Simple Plugin UI pattern; custom HTML is used only for the extra connection-test tool page that the simple single-page UI does not provide.
 - **No API keys in URLs:** The plugin always places the Bazarr API key in `X-API-KEY` headers.
 - **Persistent plugin-owned state:** Pending searches are stored in a plugin state file instead of Emby's metadata DB so the implementation stays localized and reversible.
 - **Empty subtitle list response:** Emby still expects a subtitle provider response even though Bazarr does the real work, so the plugin returns an empty result set to avoid an error state.
@@ -145,7 +146,7 @@ The plugin deliberately avoids logging the Bazarr API key.
 ## Security handling
 
 - The Bazarr API key is stored in plugin configuration and only transmitted through request headers.
-- The dashboard connection test uses the plugin's own server-side endpoint so the API key is not placed in query strings or browser history.
+- The connection tools page uses the plugin's own server-side endpoints so the API key is not placed in query strings, browser history, or echoed back to the client.
 - Custom headers are supported for edge-case reverse proxies, but they are still sent as headers rather than URL parameters.
 
 ## Development references

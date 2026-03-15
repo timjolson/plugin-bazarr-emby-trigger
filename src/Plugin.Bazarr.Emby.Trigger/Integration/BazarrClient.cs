@@ -6,7 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
-using Plugin.Bazarr.Emby.Trigger.Configuration;
+using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Models;
 using Plugin.Bazarr.Emby.Trigger.Services;
 
@@ -21,7 +21,7 @@ public class BazarrClient
         this.httpClient = httpClient;
     }
 
-    public async Task<(bool Success, string Message, string Endpoint)> TestConnectionAsync(PluginConfiguration configuration, CancellationToken cancellationToken)
+    public async Task<(bool Success, string Message, string Endpoint)> TestConnectionAsync(PluginOptions configuration, CancellationToken cancellationToken)
     {
         var endpoint = BuildEndpointSummary(configuration);
         using (var request = CreateRequest(HttpMethod.Get, configuration, "/api/system/ping"))
@@ -36,7 +36,7 @@ public class BazarrClient
         }
     }
 
-    public async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginConfiguration configuration, int? seriesId, CancellationToken cancellationToken)
+    public async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, int? seriesId, CancellationToken cancellationToken)
     {
         var moviesTask = GetJsonAsync<BazarrMoviesResponse>(configuration, "/api/movies?length=-1", cancellationToken);
         var seriesTask = GetJsonAsync<BazarrSeriesResponse>(configuration, "/api/series?length=-1", cancellationToken);
@@ -52,7 +52,7 @@ public class BazarrClient
         };
     }
 
-    public async Task TriggerSearchAsync(PluginConfiguration configuration, PendingSearchRecord search, MatchResult match, CancellationToken cancellationToken)
+    public async Task TriggerSearchAsync(PluginOptions configuration, PendingSearchRecord search, MatchResult match, CancellationToken cancellationToken)
     {
         if (match.TriggerKind == BazarrTriggerKind.MovieSearchMissing)
         {
@@ -98,14 +98,14 @@ public class BazarrClient
         }
     }
 
-    public string BuildEndpointSummary(PluginConfiguration configuration)
+    public string BuildEndpointSummary(PluginOptions configuration)
     {
         var builder = new UriBuilder(Uri.UriSchemeHttp, configuration.BazarrHost, configuration.BazarrPort);
         builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl) + "/api";
         return builder.Uri.ToString().TrimEnd('/');
     }
 
-    private async Task<T> GetJsonAsync<T>(PluginConfiguration configuration, string relativePath, CancellationToken cancellationToken) where T : class
+    private async Task<T> GetJsonAsync<T>(PluginOptions configuration, string relativePath, CancellationToken cancellationToken) where T : class
     {
         using (var request = CreateRequest(HttpMethod.Get, configuration, relativePath))
         using (var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
@@ -125,7 +125,7 @@ public class BazarrClient
         }
     }
 
-    private HttpRequestMessage CreateRequest(HttpMethod method, PluginConfiguration configuration, string relativePath, PendingSearchRecord? search = null)
+    private HttpRequestMessage CreateRequest(HttpMethod method, PluginOptions configuration, string relativePath, PendingSearchRecord? search = null)
     {
         var uri = BuildUri(configuration, relativePath);
         var request = new HttpRequestMessage(method, uri);
@@ -146,7 +146,7 @@ public class BazarrClient
         return request;
     }
 
-    private Uri BuildUri(PluginConfiguration configuration, string relativePath)
+    private Uri BuildUri(PluginOptions configuration, string relativePath)
     {
         var builder = new UriBuilder(Uri.UriSchemeHttp, configuration.BazarrHost, configuration.BazarrPort);
         builder.Path = NormalizeBaseUrl(configuration.BazarrBaseUrl).TrimEnd('/') + relativePath;

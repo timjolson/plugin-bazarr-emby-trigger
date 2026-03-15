@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Bazarr Emby Trigger Connection Tools</title>
+</head>
+<body>
+    <div id="BazarrEmbyTriggerConnectionPage" data-role="page" class="page type-interior pluginConfigurationPage">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="readOnlyContent">
+                    <h2>Connection tools</h2>
+                    <p class="fieldDescription">The main Bazarr Emby Trigger settings use Emby's documented Simple Plugin UI. This page is reserved for the extra saved-configuration connection test action.</p>
+                    <p class="fieldDescription">Edit the plugin settings from the plugin context menu, save them, and then use this page to verify the saved Bazarr connection.</p>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel">Resolved Bazarr endpoint</label>
+                    <div id="EndpointSummary" class="fieldDescription"></div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel">Saved API key status</label>
+                    <div id="ApiKeyStatus" class="fieldDescription"></div>
+                </div>
+                <div id="ConnectionMessage" class="fieldDescription"></div>
+                <div>
+                    <button is="emby-button" class="raised button-submit block" id="TestConnectionButton" type="button">Test Connection</button>
+                </div>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var page = document.querySelector('#BazarrEmbyTriggerConnectionPage');
+
+                function loadConnectionInfo() {
+                    return ApiClient.ajax({
+                        type: 'GET',
+                        url: ApiClient.getUrl('Plugins/BazarrEmbyTrigger/ConnectionInfo')
+                    }).then(function (result) {
+                        document.querySelector('#EndpointSummary').textContent = result.endpoint || '';
+                        document.querySelector('#ApiKeyStatus').textContent = result.hasApiKey ? 'API key is stored server-side.' : 'No API key is currently stored.';
+                        document.querySelector('#ConnectionMessage').textContent = '';
+                        return result;
+                    });
+                }
+
+                page.addEventListener('viewshow', function () {
+                    loadConnectionInfo();
+                });
+
+                document.querySelector('#TestConnectionButton').addEventListener('click', function () {
+                    document.querySelector('#ConnectionMessage').textContent = 'Testing saved Bazarr connection...';
+                    ApiClient.ajax({
+                        type: 'POST',
+                        url: ApiClient.getUrl('Plugins/BazarrEmbyTrigger/TestConnection'),
+                        contentType: 'application/json',
+                        data: JSON.stringify({})
+                    }).then(function (result) {
+                        document.querySelector('#EndpointSummary').textContent = result.endpoint || '';
+                        document.querySelector('#ApiKeyStatus').textContent = result.hasApiKey ? 'API key is stored server-side.' : 'No API key is currently stored.';
+                        document.querySelector('#ConnectionMessage').textContent = result.message + ' Endpoint: ' + result.endpoint;
+                    }).catch(function (error) {
+                        document.querySelector('#ConnectionMessage').textContent = (error && error.message) || 'Unable to reach Bazarr.';
+                    });
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

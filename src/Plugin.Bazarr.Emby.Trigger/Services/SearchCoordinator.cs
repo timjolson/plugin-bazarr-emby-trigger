@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Logging;
-using Plugin.Bazarr.Emby.Trigger.Configuration;
+using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Integration;
 using Plugin.Bazarr.Emby.Trigger.Models;
 
@@ -14,7 +14,7 @@ namespace Plugin.Bazarr.Emby.Trigger.Services;
 
 public class SearchCoordinator : IDisposable
 {
-    private readonly PluginConfiguration configuration;
+    private readonly Func<PluginOptions> optionsAccessor;
     private readonly BazarrClient bazarrClient;
     private readonly BazarrCatalogCache catalogCache;
     private readonly MediaMatcher matcher;
@@ -28,7 +28,7 @@ public class SearchCoordinator : IDisposable
     private Timer? timer;
 
     public SearchCoordinator(
-        PluginConfiguration configuration,
+        Func<PluginOptions> optionsAccessor,
         BazarrClient bazarrClient,
         BazarrCatalogCache catalogCache,
         MediaMatcher matcher,
@@ -38,7 +38,7 @@ public class SearchCoordinator : IDisposable
         NotificationService notificationService,
         ILogger logger)
     {
-        this.configuration = configuration;
+        this.optionsAccessor = optionsAccessor;
         this.bazarrClient = bazarrClient;
         this.catalogCache = catalogCache;
         this.matcher = matcher;
@@ -65,7 +65,8 @@ public class SearchCoordinator : IDisposable
 
     public void Start()
     {
-        timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(Math.Max(configuration.QueuePollIntervalSeconds, 5)));
+        var options = optionsAccessor();
+        timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(Math.Max(options.QueuePollIntervalSeconds, 5)));
     }
 
     private void Tick()
@@ -101,11 +102,12 @@ public class SearchCoordinator : IDisposable
                 return;
             }
 
-            if (!rateLimiter.TryAcquire(DateTime.UtcNow, Math.Max(configuration.SearchesPerHour, 1)))
+            var options = optionsAccessor();
+            if (!rateLimiter.TryAcquire(DateTime.UtcNow, Math.Max(options.SearchesPerHour, 1)))
             {
-                if (configuration.VerboseLogging)
+                if (options.VerboseLogging)
                 {
-                    var next = rateLimiter.GetNextAvailableUtc(DateTime.UtcNow, Math.Max(configuration.SearchesPerHour, 1));
+                    var next = rateLimiter.GetNextAvailableUtc(DateTime.UtcNow, Math.Max(options.SearchesPerHour, 1));
                     logger.Info($"Rate limit reached; queued subtitle searches will resume around {next:u}.");
                 }
 
@@ -117,7 +119,7 @@ public class SearchCoordinator : IDisposable
 
             try
             {
-                var catalog = await catalogCache.GetAsync(configuration, TryParseInt(queued.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
+                var catalog = await catalogCache.GetAsync(options, TryParseInt(queued.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
                 var match = matcher.Match(queued, catalog);
                 if (match == null)
                 {
@@ -128,7 +130,7 @@ public class SearchCoordinator : IDisposable
                 }
 
                 logger.Info($"Matched queued subtitle request {queued.Id}: {match.Explanation}");
-                await bazarrClient.TriggerSearchAsync(configuration, queued, match, cancellationToken).ConfigureAwait(false);
+                await bazarrClient.TriggerSearchAsync(options, queued, match, cancellationToken).ConfigureAwait(false);
                 queued.State = PendingSearchState.Triggered;
                 queued.TriggeredUtc = DateTime.UtcNow;
                 queued.BazarrMovieId = match.MovieId == 0 ? queued.BazarrMovieId : match.MovieId;
@@ -152,6 +154,7 @@ public class SearchCoordinator : IDisposable
         List<PendingSearchRecord> completed = new List<PendingSearchRecord>();
         List<PendingSearchRecord> timedOut = new List<PendingSearchRecord>();
 
+        var timeoutMinutes = Math.Max(optionsAccessor().SearchTimeoutMinutes, 1);
         lock (syncRoot)
         {
             foreach (var search in searches.Where(item => item.State == PendingSearchState.Triggered).ToList())
@@ -161,7 +164,7 @@ public class SearchCoordinator : IDisposable
                     search.State = PendingSearchState.Completed;
                     completed.Add(search);
                 }
-                else if (search.TriggeredUtc.HasValue && search.TriggeredUtc.Value.AddMinutes(Math.Max(configuration.SearchTimeoutMinutes, 1)) < DateTime.UtcNow)
+                else if (search.TriggeredUtc.HasValue && search.TriggeredUtc.Value.AddMinutes(timeoutMinutes) < DateTime.UtcNow)
                 {
                     search.State = PendingSearchState.TimedOut;
                     timedOut.Add(search);

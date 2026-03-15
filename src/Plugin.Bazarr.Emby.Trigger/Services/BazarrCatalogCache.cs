@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Plugin.Bazarr.Emby.Trigger.Configuration;
+using Plugin.Bazarr.Emby.Trigger.Options;
 using Plugin.Bazarr.Emby.Trigger.Integration;
 using Plugin.Bazarr.Emby.Trigger.Models;
 
@@ -19,7 +19,7 @@ public class BazarrCatalogCache
         this.bazarrClient = bazarrClient;
     }
 
-    public async Task<BazarrCatalogSnapshot> GetAsync(PluginConfiguration configuration, int? seriesId, CancellationToken cancellationToken)
+    public async Task<BazarrCatalogSnapshot> GetAsync(PluginOptions configuration, int? seriesId, CancellationToken cancellationToken)
     {
         var ttl = TimeSpan.FromMinutes(Math.Max(configuration.MetadataCacheTtlMinutes, 1));
         lock (syncRoot)

@@ -1,9 +1,7 @@
 using System;
-using System.IO;
 using System.Net.Http;
 using MediaBrowser.Controller.Notifications;
 using MediaBrowser.Model.Logging;
-using Plugin.Bazarr.Emby.Trigger.Configuration;
 using Plugin.Bazarr.Emby.Trigger.Integration;
 using Plugin.Bazarr.Emby.Trigger.Services;
 
@@ -15,7 +13,7 @@ internal static class PluginRuntime
     private static SearchCoordinator? coordinator;
     private static ILogger? logger;
 
-    public static void Initialize(PluginConfiguration configuration, INotificationManager notificationManager, ILogManager logManager, string pluginDataDirectory)
+    public static void Initialize(Func<Options.PluginOptions> optionsAccessor, INotificationManager notificationManager, ILogManager logManager, string pluginDataDirectory)
     {
         lock (SyncRoot)
         {
@@ -27,7 +25,7 @@ internal static class PluginRuntime
             logger = logManager.GetLogger("BazarrEmbyTrigger");
             var client = new BazarrClient(new HttpClient());
             coordinator = new SearchCoordinator(
-                configuration,
+                optionsAccessor,
                 client,
                 new BazarrCatalogCache(client),
                 new MediaMatcher(),
