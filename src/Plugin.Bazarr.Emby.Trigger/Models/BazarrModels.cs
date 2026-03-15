@@ -36,6 +36,7 @@ public class BazarrMovieRecord
     [DataMember(Name = "path")] public string Path { get; set; } = string.Empty;
     [DataMember(Name = "radarrId")] public int RadarrId { get; set; }
     [DataMember(Name = "imdbId")] public string? ImdbId { get; set; }
+    [DataMember(Name = "tmdbId")] public int? TmdbId { get; set; }
 }
 
 [DataContract]

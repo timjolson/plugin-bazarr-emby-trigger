@@ -45,13 +45,26 @@ public class BazarrClient
 
     public async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, int? seriesId, CancellationToken cancellationToken)
     {
+        return await GetCatalogSnapshotAsync(configuration, null, seriesId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, PendingSearchRecord? search, CancellationToken cancellationToken)
+    {
+        return await GetCatalogSnapshotAsync(configuration, search, TryParseInt(search?.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<BazarrCatalogSnapshot> GetCatalogSnapshotAsync(PluginOptions configuration, PendingSearchRecord? search, int? requestedSeriesId, CancellationToken cancellationToken)
+    {
         var moviesTask = GetJsonAsync<BazarrMoviesResponse>(configuration, "/api/movies?length=-1", cancellationToken);
         var seriesTask = GetJsonAsync<BazarrSeriesResponse>(configuration, "/api/series?length=-1", cancellationToken);
-        var episodesTask = seriesId.HasValue
-            ? GetJsonAsync<BazarrEpisodesResponse>(configuration, $"/api/episodes?seriesid[]={seriesId.Value}", cancellationToken)
+        await Task.WhenAll(moviesTask, seriesTask).ConfigureAwait(false);
+
+        var resolvedSeriesId = requestedSeriesId ?? ResolveSeriesId(search, seriesTask.Result.Data);
+        var episodesTask = resolvedSeriesId.HasValue
+            ? GetJsonAsync<BazarrEpisodesResponse>(configuration, $"/api/episodes?seriesid[]={resolvedSeriesId.Value}", cancellationToken)
             : Task.FromResult(new BazarrEpisodesResponse());
 
-        await Task.WhenAll(moviesTask, seriesTask, episodesTask).ConfigureAwait(false);
+        await episodesTask.ConfigureAwait(false);
 
         return new BazarrCatalogSnapshot
         {
@@ -222,4 +235,59 @@ public class BazarrClient
 
         return trimmed.TrimEnd('/');
     }
+
+    private static int? ResolveSeriesId(PendingSearchRecord? search, IReadOnlyList<BazarrSeriesRecord> series)
+    {
+        if (search == null || search.ContentType != MediaBrowser.Controller.Providers.VideoContentType.Episode)
+        {
+            return null;
+        }
+
+        var titleCandidates = series
+            .Where(item => TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
+            .ToList();
+
+        if (int.TryParse(search.TvdbId, out var tvdbId))
+        {
+            var tvdbSeries = titleCandidates.FirstOrDefault(item => item.TvdbId == tvdbId);
+            if (tvdbSeries != null)
+            {
+                return tvdbSeries.SonarrSeriesId;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(search.ImdbId))
+        {
+            var imdbSeries = titleCandidates.FirstOrDefault(item => string.Equals(item.ImdbId, search.ImdbId, StringComparison.OrdinalIgnoreCase));
+            if (imdbSeries != null)
+            {
+                return imdbSeries.SonarrSeriesId;
+            }
+        }
+
+        return titleCandidates.Count == 1
+            ? titleCandidates[0].SonarrSeriesId
+            : null;
+    }
+
+    private static int? TryParseInt(string? value)
+        => int.TryParse(value, out var parsed) ? parsed : null;
+
+    private static bool TitleAndYearMatch(string leftTitle, string rightTitle, string leftYear, int? rightYear)
+    {
+        if (!string.Equals(Normalize(leftTitle), Normalize(rightTitle), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!rightYear.HasValue || !int.TryParse(leftYear, out var parsedYear))
+        {
+            return true;
+        }
+
+        return Math.Abs(parsedYear - rightYear.Value) <= 1;
+    }
+
+    private static string Normalize(string value)
+        => (value ?? string.Empty).Trim().Replace("_", " ").Replace(".", " ");
 }

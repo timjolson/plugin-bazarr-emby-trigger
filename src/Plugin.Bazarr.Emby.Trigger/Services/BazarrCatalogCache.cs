@@ -19,7 +19,7 @@ public class BazarrCatalogCache
         this.bazarrClient = bazarrClient;
     }
 
-    public async Task<BazarrCatalogSnapshot> GetAsync(PluginOptions configuration, int? seriesId, CancellationToken cancellationToken)
+    public async Task<BazarrCatalogSnapshot> GetAsync(PluginOptions configuration, PendingSearchRecord search, CancellationToken cancellationToken)
     {
         var ttl = TimeSpan.FromMinutes(Math.Max(configuration.MetadataCacheTtlMinutes, 1));
         lock (syncRoot)
@@ -30,7 +30,7 @@ public class BazarrCatalogCache
             }
         }
 
-        var fresh = await bazarrClient.GetCatalogSnapshotAsync(configuration, seriesId, cancellationToken).ConfigureAwait(false);
+        var fresh = await bazarrClient.GetCatalogSnapshotAsync(configuration, search, cancellationToken).ConfigureAwait(false);
         lock (syncRoot)
         {
             snapshot = fresh;

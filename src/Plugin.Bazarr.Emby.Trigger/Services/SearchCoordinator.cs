@@ -230,7 +230,7 @@ public class SearchCoordinator : IDisposable
             {
                 queued.LastAttemptUtc = now;
                 queued.RetryCount++;
-                var catalog = await catalogCache.GetAsync(options, TryParseInt(queued.SonarrSeriesId), cancellationToken).ConfigureAwait(false);
+                var catalog = await catalogCache.GetAsync(options, queued, cancellationToken).ConfigureAwait(false);
                 ResetConnectionFailureState();
                 ResetApiNotificationState();
                 var match = matcher.Match(queued, catalog);

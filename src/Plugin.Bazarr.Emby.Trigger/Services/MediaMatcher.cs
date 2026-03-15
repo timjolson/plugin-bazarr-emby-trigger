@@ -21,10 +21,13 @@ public class MediaMatcher
     private MatchResult? MatchMovie(PendingSearchRecord search, BazarrCatalogSnapshot catalog)
     {
         var candidates = catalog.Movies.AsEnumerable();
+        var titleCandidates = candidates
+            .Where(item => TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear))
+            .ToList();
 
         if (int.TryParse(search.RadarrId, out var radarrId))
         {
-            var direct = candidates.FirstOrDefault(item => item.RadarrId == radarrId && TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
+            var direct = titleCandidates.FirstOrDefault(item => item.RadarrId == radarrId);
             if (direct != null)
             {
                 return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = direct.RadarrId, Explanation = "Matched by Radarr ID." };
@@ -33,10 +36,19 @@ public class MediaMatcher
 
         if (!string.IsNullOrWhiteSpace(search.ImdbId))
         {
-            var imdb = candidates.FirstOrDefault(item => string.Equals(item.ImdbId, search.ImdbId, StringComparison.OrdinalIgnoreCase) && TitleAndYearMatch(item.Title, search.Title, item.Year, search.ProductionYear));
+            var imdb = titleCandidates.FirstOrDefault(item => string.Equals(item.ImdbId, search.ImdbId, StringComparison.OrdinalIgnoreCase));
             if (imdb != null)
             {
                 return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = imdb.RadarrId, Explanation = "Matched by IMDb ID fallback." };
+            }
+        }
+
+        if (int.TryParse(search.TmdbId, out var tmdbId))
+        {
+            var tmdb = titleCandidates.FirstOrDefault(item => item.TmdbId == tmdbId);
+            if (tmdb != null)
+            {
+                return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = tmdb.RadarrId, Explanation = "Matched by TMDB ID fallback." };
             }
         }
 
@@ -44,6 +56,11 @@ public class MediaMatcher
         if (path != null)
         {
             return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = path.RadarrId, Explanation = "Matched by cached file path fallback." };
+        }
+
+        if (titleCandidates.Count == 1)
+        {
+            return new MatchResult { ContentType = search.ContentType, TriggerKind = BazarrTriggerKind.MovieSearchMissing, MovieId = titleCandidates[0].RadarrId, Explanation = "Matched by cached title/year fallback." };
         }
 
         return null;
@@ -107,6 +124,25 @@ public class MediaMatcher
                         Explanation = "Matched by TVDB ID plus episode numbers.",
                     };
                 }
+            }
+        }
+
+        var titleSeriesCandidates = seriesCandidates
+            .Where(item => TitleAndYearMatch(item.Title, search.SeriesName, item.Year, search.ProductionYear))
+            .ToList();
+        if (titleSeriesCandidates.Count == 1)
+        {
+            var episode = episodeCandidates.FirstOrDefault(item => item.SonarrSeriesId == titleSeriesCandidates[0].SonarrSeriesId && EpisodeShapeMatches(item, search));
+            if (episode != null)
+            {
+                return new MatchResult
+                {
+                    ContentType = search.ContentType,
+                    TriggerKind = BazarrTriggerKind.EpisodeManualTopResult,
+                    EpisodeId = episode.SonarrEpisodeId,
+                    SeriesId = episode.SonarrSeriesId,
+                    Explanation = "Matched by cached series title/year fallback plus episode numbers.",
+                };
             }
         }
 

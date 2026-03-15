@@ -26,14 +26,59 @@ public class BazarrClientTests
             throw new InvalidOperationException("Unexpected request: " + request.RequestUri);
         });
         var client = new BazarrClient(new HttpClient(handler));
+        var search = new PendingSearchRecord
+        {
+            ContentType = MediaBrowser.Controller.Providers.VideoContentType.Episode,
+            SeriesName = "Unknown Show",
+            ProductionYear = 2024,
+        };
 
-        var snapshot = await client.GetCatalogSnapshotAsync(CreateOptions(), null, CancellationToken.None);
+        var snapshot = await client.GetCatalogSnapshotAsync(CreateOptions(), search, CancellationToken.None);
 
         Assert.Empty(snapshot.Movies);
         Assert.Empty(snapshot.Series);
         Assert.Empty(snapshot.Episodes);
         Assert.Equal(2, handler.Requests.Count);
         Assert.DoesNotContain(handler.Requests, request => request.RequestUri!.AbsolutePath.EndsWith("/api/episodes", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task GetCatalogSnapshotAsync_WithoutSonarrSeriesId_UsesCachedTvdbMatchToLoadEpisodes()
+    {
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/api/movies", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("{\"data\":[]}");
+            }
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/api/series", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("{\"data\":[{\"title\":\"Example Show\",\"year\":\"2024\",\"path\":\"/shows/example\",\"sonarrSeriesId\":88,\"tvdbId\":12345}]}");
+            }
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/api/episodes", StringComparison.Ordinal))
+            {
+                return CreateJsonResponse("{\"data\":[{\"title\":\"Pilot\",\"season\":1,\"episode\":1,\"sonarrEpisodeId\":99,\"sonarrSeriesId\":88,\"path\":\"/shows/example/s01e01.mkv\"}]}");
+            }
+
+            throw new InvalidOperationException("Unexpected request: " + request.RequestUri);
+        });
+        var client = new BazarrClient(new HttpClient(handler));
+        var search = new PendingSearchRecord
+        {
+            ContentType = MediaBrowser.Controller.Providers.VideoContentType.Episode,
+            SeriesName = "Example Show",
+            ProductionYear = 2024,
+            TvdbId = "12345",
+        };
+
+        var snapshot = await client.GetCatalogSnapshotAsync(CreateOptions(), search, CancellationToken.None);
+
+        Assert.Single(snapshot.Series);
+        Assert.Single(snapshot.Episodes);
+        Assert.Contains(handler.Requests, request => request.RequestUri!.AbsolutePath.EndsWith("/api/episodes", StringComparison.Ordinal)
+            && request.RequestUri.Query == "?seriesid[]=88");
     }
 
     [Fact]
